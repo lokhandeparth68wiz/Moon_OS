@@ -2,9 +2,10 @@
 # Top-level build orchestration
 
 MOONOS_ROOT := $(shell pwd)
-MKBS := $(MOONOS_ROOT)/mkbs/mkbs
+MKBS := $(MOONOS_ROOT)/system/mkbs/mkbs
+SCRIPTS := $(MOONOS_ROOT)/scripts/cli
 
-.PHONY: all help configure build clean test lint release
+.PHONY: all help configure build clean test lint release iso raw image docs deps-ubuntu deps-fedora config
 
 # Default target
 all: build
@@ -21,6 +22,9 @@ help:
 	@echo "  lint         - Run linters on packages"
 	@echo "  release      - Create release"
 	@echo "  image        - Create installation image"
+	@echo "  iso          - Create ISO image"
+	@echo "  raw          - Create raw disk image"
+	@echo "  docs         - Generate documentation"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make configure TARGET=x86_64 PROFILE=base"
@@ -101,11 +105,35 @@ pkg-list:
 
 # Create release
 release:
-	./release/release.sh $(VERSION)
+	./scripts/release/release.sh $(VERSION)
 
 # Generate documentation
 docs:
 	cd docs && make html
+
+# Format code
+format:
+	./scripts/cli/moonci format
+
+# Run CI/CD pipeline locally
+ci:
+	./scripts/cli/moonci run
+
+# Build gaming kernel
+kernel:
+	./scripts/cli/moonpkg build kernel --config=gaming
+
+# Build desktop
+desktop:
+	./scripts/cli/moonpkg build desktop
+
+# Build installer
+installer:
+	./scripts/cli/moonpkg build installer
+
+# Build full ISO
+iso-full:
+	./scripts/cli/moonpkg build-iso --target=x86_64 --desktop=cosmic
 
 # Install dependencies (for Debian/Ubuntu)
 deps-ubuntu:
@@ -134,3 +162,5 @@ config:
 	@echo "Target:  $(TARGET)"
 	@echo "Profile: $(PROFILE)"
 	@echo "Jobs:    $(JOBS)"
+	@echo "MKBS:    $(MKBS)"
+	@echo "Scripts: $(SCRIPTS)"

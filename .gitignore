@@ -41,3 +41,23 @@ moon-os.iso
 moon-os.img
 packages/*/src/
 packages/*/work/
+
+# Build directories
+system/mkbs/work/
+system/mkbs/src/
+iso/output/
+iso/work/
+
+# Compiled packages
+packages/base/*/pkg/
+packages/gaming/*/pkg/
+packages/desktop/*/pkg/
+packages/security/*/pkg/
+
+# Generated files
+*.tar.gz
+*.tar.xz
+*.squashfs
+checksums-*.txt
+CHANGELOG.md
+release-notes.md

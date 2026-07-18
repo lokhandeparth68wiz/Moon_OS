@@ -186,31 +186,31 @@ jobs:
       - name: Compile base packages
         if: matrix.category == 'base'
         run: |
-          chmod +x moonpkg
+          chmod +x scripts/cli/moonpkg
           for pkg in packages/base/*/PKGBUILD; do
             pkgdir=$(dirname "$pkg")
             pkgname=$(basename "$pkgdir")
             echo "Compiling $pkgname..."
-            ./moonpkg build "$pkgdir" || echo "Warning: $pkgname build failed, continuing..."
+            ./scripts/cli/moonpkg build "$pkgdir" || echo "Warning: $pkgname build failed, continuing..."
           done
 
       - name: Compile gaming packages
         if: matrix.category == 'gaming'
         run: |
-          chmod +x moonpkg
-          ./moonpkg build packages/gaming/ || echo "Warning: gaming packages build failed"
+          chmod +x scripts/cli/moonpkg
+          ./scripts/cli/moonpkg build packages/gaming/ || echo "Warning: gaming packages build failed"
 
       - name: Compile desktop packages
         if: matrix.category == 'desktop'
         run: |
-          chmod +x moonpkg
-          ./moonpkg build packages/desktop/ || echo "Warning: desktop packages build failed"
+          chmod +x scripts/cli/moonpkg
+          ./scripts/cli/moonpkg build packages/desktop/ || echo "Warning: desktop packages build failed"
 
       - name: Compile security packages
         if: matrix.category == 'security'
         run: |
-          chmod +x moonpkg
-          ./moonpkg build packages/security/ || echo "Warning: security packages build failed"
+          chmod +x scripts/cli/moonpkg
+          ./scripts/cli/moonpkg build packages/security/ || echo "Warning: security packages build failed"
 
       - name: Package artifacts
         run: |
@@ -256,8 +256,8 @@ jobs:
 
       - name: Build root filesystem
         run: |
-          chmod +x mkbs/mkbs
-          ./mkbs/mkbs rootfs \
+          chmod +x system/mkbs/mkbs
+          ./system/mkbs/mkbs rootfs \
             --target=${{ matrix.target }} \
             --output=build/rootfs-${{ matrix.target }}.squashfs
 
@@ -419,8 +419,8 @@ jobs:
 
       - name: Build installer image
         run: |
-          chmod +x mooninstaller
-          ./mooninstaller build \
+          chmod +x installer/mooninstaller.sh
+          ./installer/mooninstaller.sh build \
             --target=${{ matrix.target }} \
             --rootfs=rootfs/ \
             --bootloader=bootloader/ \
@@ -489,8 +489,8 @@ jobs:
 
       - name: Build Live ISO
         run: |
-          chmod +x moonpkg
-          ./moonpkg build-iso \
+          chmod +x scripts/cli/moonpkg
+          ./scripts/cli/moonpkg build-iso \
             --target=${{ matrix.target }} \
             --desktop=${{ matrix.desktop }} \
             --rootfs=rootfs/ \
@@ -786,12 +786,12 @@ jobs:
 
       - name: Generate release notes
         run: |
-          chmod +x moonci
-          ./moonci release-notes --version=${{ env.MOON_OS_VERSION }} --output=release-notes.md
+          chmod +x scripts/cli/moonci
+          ./scripts/cli/moonci release-notes --version=${{ env.MOON_OS_VERSION }} --output=release-notes.md
 
       - name: Generate changelog
         run: |
-          ./moonci changelog --version=${{ env.MOON_OS_VERSION }} --output=CHANGELOG.md
+          ./scripts/cli/moonci changelog --version=${{ env.MOON_OS_VERSION }} --output=CHANGELOG.md
 
       - name: Update release with notes
         uses: softprops/action-gh-release@v2
@@ -900,8 +900,8 @@ jobs:
 
       - name: Sync to mirror servers
         run: |
-          chmod +x moonci
-          ./moonci mirror-sync \
+          chmod +x scripts/cli/moonci
+          ./scripts/cli/moonci mirror-sync \
             --version=${{ env.MOON_OS_VERSION }} \
             --artifacts=release/ || echo "Mirror sync skipped (no credentials)"
         env:
