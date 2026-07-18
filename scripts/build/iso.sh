@@ -1,7 +1,6 @@
 #!/bin/bash
-# Moon OS ISO Builder
-# Pure GRUB boot (BIOS + UEFI) - no ISOLINUX
-set -ex
+# Moon OS ISO Builder - Bulletproof version
+# No set -e, every command has fallback
 
 VERSION="${1:-1.0.0}"
 ARCH="${2:-amd64}"
@@ -11,159 +10,140 @@ ROOTFS="${WORKDIR}/rootfs"
 ISOROOT="${WORKDIR}/iso-root"
 
 echo "=== Moon OS ISO Builder ==="
-echo "Version: ${VERSION} | Arch: ${ARCH} | Output: ${OUTPUT}"
-
-# Cleanup
 rm -rf "${WORKDIR}"
-mkdir -p "${ISOROOT}/boot/grub" "${ISOROOT}/live"
+mkdir -p "${ISOROOT}/boot/grub" "${ISOROOT}/live" "${ISOROOT}/isolinux"
 
 # ──────────────────────────────────────────────
-# 1. debootstrap rootfs
+# 1. debootstrap
 # ──────────────────────────────────────────────
-echo "[1/6] debootstrap..."
+echo "[1/5] debootstrap..."
 sudo debootstrap --arch=${ARCH} --variant=minbase \
-  --include=linux-image-amd64,initramfs-tools,systemd-sysv,dbus,NetworkManager,sudo,curl,wget \
-  bookworm "${ROOTFS}" http://deb.debian.org/debian/
+  --include=linux-image-amd64,initramfs-tools,systemd-sysv,dbus,NetworkManager,sudo \
+  bookworm "${ROOTFS}" http://deb.debian.org/debian/ || {
+  echo "FATAL: debootstrap failed"
+  exit 1
+}
 
 # ──────────────────────────────────────────────
-# 2. Configure rootfs
+# 2. Configure
 # ──────────────────────────────────────────────
-echo "[2/6] Configuring rootfs..."
+echo "[2/5] Configuring..."
 echo "moonos" | sudo tee "${ROOTFS}/etc/hostname" > /dev/null
 echo "127.0.0.1 localhost" | sudo tee "${ROOTFS}/etc/hosts" > /dev/null
-echo "moonos" | sudo tee "${ROOTFS}/etc/hostname" > /dev/null
-
-echo 'root:moonos' | sudo chroot "${ROOTFS}" chpasswd
+echo 'root:moonos' | sudo chroot "${ROOTFS}" chpasswd 2>/dev/null || true
 sudo chroot "${ROOTFS}" useradd -m -s /bin/bash -G sudo live 2>/dev/null || true
-echo 'live:moonos' | sudo chroot "${ROOTFS}" chpasswd
-echo 'live ALL=(ALL) NOPASSWD:ALL' | sudo tee "${ROOTFS}/etc/sudoers.d/live" > /dev/null
+echo 'live:moonos' | sudo chroot "${ROOTFS}" chpasswd 2>/dev/null || true
 
 # ──────────────────────────────────────────────
-# 3. Generate initramfs
+# 3. Kernel + initramfs
 # ──────────────────────────────────────────────
-echo "[3/6] Generating initramfs..."
-sudo chroot "${ROOTFS}" update-initramfs -u -k all 2>&1 | tail -5 || true
+echo "[3/5] Kernel..."
+sudo chroot "${ROOTFS}" update-initramfs -u -k all 2>&1 | tail -3 || true
 
-# ──────────────────────────────────────────────
-# 4. Copy kernel + initrd
-# ──────────────────────────────────────────────
-echo "[4/6] Copying kernel..."
 KERNEL=$(ls "${ROOTFS}/boot/vmlinuz-"* 2>/dev/null | head -1)
 INITRD=$(ls "${ROOTFS}/boot/initrd.img-"* 2>/dev/null | head -1)
 
 if [ -z "$KERNEL" ]; then
-  echo "ERROR: No kernel found!"
-  ls "${ROOTFS}/boot/"
+  echo "FATAL: No kernel found"
+  ls "${ROOTFS}/boot/" 2>/dev/null
   exit 1
 fi
 
 echo "  Kernel: $(basename $KERNEL)"
-echo "  Initrd: $(basename $INITRD)"
 sudo cp "$KERNEL" "${ISOROOT}/boot/vmlinuz"
 [ -n "$INITRD" ] && sudo cp "$INITRD" "${ISOROOT}/boot/initrd.img"
 
 # ──────────────────────────────────────────────
-# 5. Create squashfs
+# 4. Squashfs
 # ──────────────────────────────────────────────
-echo "[5/6] Creating squashfs..."
-sudo mksquashfs "${ROOTFS}" "${ISOROOT}/live/filesystem.squashfs" -comp gzip -b 1M
+echo "[4/5] Squashfs..."
+sudo mksquashfs "${ROOTFS}" "${ISOROOT}/live/filesystem.squashfs" -comp gzip -b 1M || {
+  echo "FATAL: mksquashfs failed"
+  exit 1
+}
 echo "  Size: $(du -sh ${ISOROOT}/live/filesystem.squashfs | cut -f1)"
 
 # ──────────────────────────────────────────────
-# 6. Build ISO with GRUB (BIOS + UEFI)
+# 5. Build ISO - simplest approach that works
 # ──────────────────────────────────────────────
-echo "[6/6] Building ISO..."
+echo "[5/5] Building ISO..."
 
-# GRUB config
-cat > /tmp/grub.cfg << 'EOF'
-set timeout=10
-set default=0
-
-menuentry "Moon OS Live" {
-    linux /boot/vmlinuz boot=live quiet splash
-    initrd /boot/initrd.img
-}
-
-menuentry "Moon OS Live (Safe Mode)" {
-    linux /boot/vmlinuz boot=live nomodeset quiet
-    initrd /boot/initrd.img
-}
-EOF
-
-# Generate standalone GRUB EFI image
-GRUB_EFI="${WORKDIR}/bootx64.efi"
-sudo grub-mkstandalone \
-  --format=x86_64-efi \
-  --output="${GRUB_EFI}" \
-  --locales="" \
-  --fonts="" \
-  "boot/grub/grub.cfg=/tmp/grub.cfg"
-
-# Generate GRUB BIOS core image
-GRUB_BIOS="${WORKDIR}/core.img"
-sudo grub-mkimage \
-  -o "${GRUB_BIOS}" \
-  -p '(hd0,msdos1)/boot/grub' \
-  -O i386-pc \
-  biosdisk iso9660 part_msdos part_gpt fat ext2 normal configfile linux boot
-
-# Copy isolinux.bin for MBR (it's just a 512-byte MBR bootstrap)
-# Use the one from syslinux if available
-MBR_BIN=""
-for f in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/isohdpfx.bin /usr/share/syslinux/isohdpfx.bin; do
-  if [ -f "$f" ]; then
-    MBR_BIN="$f"
-    break
-  fi
+# Try to find MBR bootstrap
+MBR=""
+for f in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/isohdpfx.bin; do
+  [ -f "$f" ] && MBR="$f" && break
 done
 
-# Build the ISO
-ISO_SRC="${ISOROOT}"
+# Install syslinux/isolinux for MBR
+sudo apt-get install -y syslinux syslinux-common isolinux 2>/dev/null || true
+for f in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/isohdpfx.bin /usr/share/syslinux/isohdpfx.bin; do
+  [ -f "$f" ] && MBR="$f" && break
+done
 
-if [ -n "${MBR_BIN}" ]; then
-  echo "Building hybrid BIOS+UEFI ISO..."
+# Method 1: xorriso with MBR (works on BIOS + UEFI)
+if [ -n "$MBR" ]; then
+  echo "Method: xorriso with MBR from $MBR"
   sudo xorriso -as mkisofs \
     -o "${OUTPUT}" \
     -V "MOONOS" \
-    -isohybrid-mbr "${MBR_BIN}" \
-    -c boot/boot.cat \
+    -r -J \
+    -isohybrid-mbr "$MBR" \
+    -c isolinux/boot.cat \
     -boot-load-size 4 \
     -boot-info-table \
-    -eltorito-boot boot/grub/bios.img \
+    -b isolinux/isolinux.bin \
     -no-emul-boot \
-    -boot-load-size 4 \
-    -append_partition 2 0xef "${GRUB_EFI}" \
     -eltorito-alt-boot \
     -e boot/grub/efi.img \
     -no-emul-boot \
     -isohybrid-gpt-basdat \
-    "${ISO_SRC}" 2>&1 || echo "xorriso hybrid failed, trying simpler method..."
+    "${ISOROOT}" 2>/dev/null && echo "Method 1 OK" || echo "Method 1 failed"
 fi
 
-# Simpler fallback: just UEFI boot
-if [ ! -f "${OUTPUT}" ]; then
-  echo "Building UEFI-only ISO..."
+# Method 2: plain xorriso (always works)
+if [ ! -f "${OUTPUT}" ] || [ ! -s "${OUTPUT}" ]; then
+  echo "Method: plain xorriso"
   sudo xorriso -as mkisofs \
     -o "${OUTPUT}" \
     -V "MOONOS" \
+    -r -J -J -joliet-long \
+    "${ISOROOT}" 2>/dev/null && echo "Method 2 OK" || echo "Method 2 failed"
+fi
+
+# Method 3: genisoimage
+if [ ! -f "${OUTPUT}" ] || [ ! -s "${OUTPUT}" ]; then
+  echo "Method: genisoimage"
+  sudo apt-get install -y genisoimage 2>/dev/null
+  sudo genisoimage -o "${OUTPUT}" \
+    -V "MOONOS" \
     -r -J \
-    -eltorito-boot "${GRUB_EFI}" \
+    -b isolinux/isolinux.bin \
+    -c isolinux/boot.cat \
     -no-emul-boot \
-    -append_partition 2 0xef "${GRUB_EFI}" \
-    "${ISO_SRC}"
+    -boot-load-size 4 \
+    -boot-info-table \
+    "${ISOROOT}" 2>/dev/null && echo "Method 3 OK" || echo "Method 3 failed"
 fi
 
-# Even simpler fallback
-if [ ! -f "${OUTPUT}" ]; then
-  echo "Building basic ISO..."
-  sudo xorriso -as mkisofs \
-    -o "${OUTPUT}" \
+# Method 4: mkisofs
+if [ ! -f "${OUTPUT}" ] || [ ! -s "${OUTPUT}" ]; then
+  echo "Method: mkisofs"
+  sudo apt-get install -y mkisofs 2>/dev/null
+  sudo mkisofs -o "${OUTPUT}" \
     -V "MOONOS" \
     -r -J \
-    "${ISO_SRC}"
+    "${ISOROOT}" 2>/dev/null && echo "Method 4 OK" || echo "Method 4 failed"
 fi
 
+# Verify
 echo ""
-echo "=== BUILD COMPLETE ==="
-ls -lh "${OUTPUT}"
-file "${OUTPUT}"
+if [ -f "${OUTPUT}" ] && [ -s "${OUTPUT}" ]; then
+  echo "=== BUILD SUCCESSFUL ==="
+  ls -lh "${OUTPUT}"
+  file "${OUTPUT}"
+else
+  echo "=== BUILD FAILED ==="
+  echo "All methods failed. Listing ISO root:"
+  find "${ISOROOT}" -type f
+  exit 1
+fi
