@@ -18,7 +18,7 @@ mkdir -p "${ISOROOT}/boot/grub" "${ISOROOT}/live" "${ISOROOT}/isolinux"
 # ──────────────────────────────────────────────
 echo "[1/5] debootstrap..."
 sudo debootstrap --arch=${ARCH} --variant=minbase \
-  --include=linux-image-amd64,initramfs-tools,systemd-sysv,dbus,NetworkManager,sudo \
+  --include=linux-image-amd64,initramfs-tools,systemd-sysv,dbus,network-manager,sudo \
   bookworm "${ROOTFS}" http://deb.debian.org/debian/ || {
   echo "FATAL: debootstrap failed"
   exit 1
