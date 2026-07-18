@@ -139,172 +139,57 @@ jobs:
   # ──────────────────────────────────────────────
   # STAGE 5: BUILD ROOT FILESYSTEM
   # ──────────────────────────────────────────────
-  build-rootfs:
-    name: Build Root Filesystem
+  # ──────────────────────────────────────────────
+  # STAGE 5-8: BUILD FULL BOOTABLE ISO
+  # ──────────────────────────────────────────────
+  build-iso:
+    name: Build Bootable ISO
     runs-on: ubuntu-latest
     needs: [compile-packages]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup build environment
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y debootstrap squashfs-tools
+          sudo apt-get install -y \
+            debootstrap \
+            squashfs-tools \
+            xorriso \
+            mtools \
+            dosfstools \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            isolinux \
+            syslinux \
+            syslinux-common \
+            live-boot \
+            systemd-sysv \
+            console-setup \
+            locales
 
-      - name: Build minimal rootfs
+      - name: Configure live-boot
         run: |
-          mkdir -p build/rootfs
-          sudo debootstrap --arch=amd64 bookworm build/rootfs http://deb.debian.org/debian/ || \
-            echo "Debootstrap failed, using minimal stub"
-          # Create minimal rootfs structure
-          sudo mkdir -p build/rootfs/{bin,sbin,lib,lib64,usr,etc,var,tmp,proc,sys,dev,boot,opt,home,root,mnt}
-          sudo mkdir -p build/rootfs/usr/{bin,sbin,lib,share}
-          echo "MoonOS" | sudo tee build/rootfs/etc/hostname > /dev/null
-          echo "Minimal rootfs created"
+          sudo mkdir -p config/includes.chroot/etc/live
+          echo "live" | sudo tee config/includes.chroot/etc/live/boot.cat || true
 
-      - name: Create squashfs
+      - name: Build bootable ISO
         run: |
-          sudo mksquashfs build/rootfs build/rootfs.squashfs -comp gzip -b 1M
-          ls -lh build/rootfs.squashfs
+          chmod +x scripts/build/iso.sh
+          sudo ./scripts/build/iso.sh ${{ env.MOON_OS_VERSION }} amd64 moonos-${{ env.MOON_OS_VERSION }}-x86_64.iso
 
-      - name: Upload rootfs artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rootfs
-          path: build/rootfs.squashfs
-          retention-days: 7
-
-  # ──────────────────────────────────────────────
-  # STAGE 6: GENERATE BOOTLOADER
-  # ──────────────────────────────────────────────
-  build-bootloader:
-    name: Generate Bootloader
-    runs-on: ubuntu-latest
-    needs: [build-rootfs]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup GRUB
+      - name: Verify ISO
         run: |
-          sudo apt-get update
-          sudo apt-get install -y grub-pc-bin grub-efi-amd64-bin mtools dosfstools xorriso
-
-      - name: Create bootloader files
-        run: |
-          mkdir -p build/boot/grub
-          cat > build/boot/grub/grub.cfg << 'GRUBEOF'
-          set timeout=5
-          set default=0
-
-          menuentry "Moon OS - Live" {
-            linux /boot/vmlinuz root=/dev/ram0 rd.live.image quiet
-            initrd /boot/initramfs.img
-          }
-
-          menuentry "Moon OS - Install" {
-            linux /boot/vmlinuz root=/dev/ram0 rd.live.image installer quiet
-            initrd /boot/initramfs.img
-          }
-          GRUBEOF
-          echo "Bootloader config created"
-
-      - name: Upload bootloader artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bootloader
-          path: build/boot/
-          retention-days: 7
-
-  # ──────────────────────────────────────────────
-  # STAGE 7: GENERATE INSTALLER
-  # ──────────────────────────────────────────────
-  build-installer:
-    name: Generate Installer
-    runs-on: ubuntu-latest
-    needs: [build-rootfs]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Package installer
-        run: |
-          mkdir -p build/installer
-          cp installer/mooninstaller.sh build/installer/ || true
-          cp -r installer/lib build/installer/ || true
-          chmod +x build/installer/mooninstaller.sh || true
-          tar czf build/installer.tar.gz -C build/installer .
-          echo "Installer packaged"
-
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: installer
-          path: build/installer.tar.gz
-          retention-days: 7
-
-  # ──────────────────────────────────────────────
-  # STAGE 8: GENERATE LIVE ISO
-  # ──────────────────────────────────────────────
-  build-iso:
-    name: Generate Live ISO
-    runs-on: ubuntu-latest
-    needs: [build-rootfs, build-bootloader, build-installer]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download rootfs
-        uses: actions/download-artifact@v4
-        with:
-          name: rootfs
-          path: build/
-
-      - name: Download bootloader
-        uses: actions/download-artifact@v4
-        with:
-          name: bootloader
-          path: build/boot/
-
-      - name: Setup ISO tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xorriso mtools dosfstools grub-efi-amd64-bin
-
-      - name: Build ISO
-        run: |
-          mkdir -p iso-root/boot
-          mkdir -p iso-root/isolinux
-
-          # Copy kernel and rootfs
-          cp build/rootfs.squashfs iso-root/boot/
-
-          # Create grub config
-          cp -r build/boot/grub iso-root/boot/grub/ || true
-
-          # Generate ISO
-          sudo xorriso -as mkisofs \
-            -o moonos-${{ env.MOON_OS_VERSION }}-x86_64.iso \
-            -V "MoonOS" \
-            -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
-            -c isolinux/boot.cat \
-            -boot-load-size 4 \
-            -boot-info-table \
-            -eltorito-alt-boot \
-            -e boot/grub/efi.img \
-            -no-emul-boot \
-            -isohybrid-gpt-basdat \
-            iso-root/ || echo "ISO generation completed with fallback"
-
-          # Fallback: simple tar if xorriso fails
-          if [ ! -f "moonos-${{ env.MOON_OS_VERSION }}-x86_64.iso" ]; then
-            echo "Creating tar-based distribution..."
-            tar czf moonos-${{ env.MOON_OS_VERSION }}-x86_64.tar.gz -C iso-root .
-            cp moonos-${{ env.MOON_OS_VERSION }}-x86_64.tar.gz moonos-${{ env.MOON_OS_VERSION }}-x86_64.iso
-          fi
-
+          file moonos-${{ env.MOON_OS_VERSION }}-x86_64.iso
           ls -lh moonos-${{ env.MOON_OS_VERSION }}-x86_64.iso
+          # Verify it's a real ISO (not a tar.gz fallback)
+          if file moonos-${{ env.MOON_OS_VERSION }}-x86_64.iso | grep -q "ISO 9660"; then
+            echo "Valid ISO image"
+          else
+            echo "WARNING: Not a valid ISO image"
+            exit 1
+          fi
 
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
