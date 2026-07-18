@@ -1,0 +1,45 @@
+# MoonOS Package: zlib
+# Compression library
+
+pkg_name="zlib"
+pkg_version="1.3.1"
+pkg_release="1"
+pkg_description="zlib compression library"
+pkg_url="https://www.zlib.net/"
+pkg_license="Zlib"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl")
+pkg_build_depends=()
+
+pkg_source=(
+    "https://zlib.net/zlib-1.3.1.tar.gz"
+)
+
+pkg_sha256=(
+    "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --shared \
+        --libdir=/usr/lib \
+        --includedir=/usr/include
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}

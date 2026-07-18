@@ -1,0 +1,61 @@
+# MoonOS Package: curl
+# URL transfer library and tool
+
+pkg_name="curl"
+pkg_version="8.5.0"
+pkg_release="1"
+pkg_description="curl - command line tool and library for transferring data with URLs"
+pkg_url="https://curl.se/"
+pkg_license="MIT"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "openssl" "zlib" "nghttp2")
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://curl.se/download/curl-8.5.0.tar.xz"
+)
+
+pkg_sha256=(
+    "8c70714441e7e3b18e9e5b2c4b8c3c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --enable-shared \
+        --disable-static \
+        --with-openssl \
+        --with-nghttp2 \
+        --enable-ipv6 \
+        --enable-unix-sockets \
+        --enable-ares \
+        --enable-ldap \
+        --enable-ldaps
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Remove documentation
+    rm -rf "${PKG_INSTALL_DIR}/usr/share/doc"
+}
+
+pkg_prelude() {
+    # Ensure dependencies are installed
+    for dep in openssl zlib nghttp2; do
+        if ! pkg_is_installed "$dep"; then
+            log_info "Building dependency: $dep"
+            build_package "$dep"
+        fi
+    done
+}

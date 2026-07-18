@@ -1,0 +1,48 @@
+# MoonOS Package: gmp
+# GNU Multiple Precision Arithmetic Library
+
+pkg_name="gmp"
+pkg_version="6.3.0"
+pkg_release="1"
+pkg_description="GNU Multiple Precision Arithmetic Library"
+pkg_url="https://gmplib.org/"
+pkg_license="LGPL-3.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl")
+pkg_build_depends=()
+
+pkg_source=(
+    "https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz"
+)
+
+pkg_sha256=(
+    "a82dfcd00e90a8d6a51c5e14158ab45a5d61402fc5d07aaf51e347784696f84a"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --libdir=/usr/lib \
+        --enable-cxx \
+        --enable-shared \
+        --disable-static
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}

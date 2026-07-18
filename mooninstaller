@@ -1,0 +1,659 @@
+#!/bin/bash
+# MOONINSTALLER - Moon OS Installation System
+# Production-grade installer for Moon OS
+
+set -euo pipefail
+
+MOON_INSTALLER_VERSION="1.0.0"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+
+# ============================================================================
+# Interactive Installer
+# ============================================================================
+interactive_install() {
+    clear
+    echo "=========================================="
+    echo "  Moon OS Installer v${MOON_INSTALLER_VERSION}"
+    echo "=========================================="
+    echo ""
+    echo "Welcome to Moon OS!"
+    echo "The world's best gaming-focused Linux operating system."
+    echo ""
+    echo "This installer will guide you through the installation process."
+    echo ""
+    
+    # Select language
+    select_language
+    
+    # Select keyboard
+    select_keyboard
+    
+    # Select timezone
+    select_timezone
+    
+    # Select disk
+    select_disk
+    
+    # Select partition scheme
+    select_partition_scheme
+    
+    # Create user
+    create_user
+    
+    # Select desktop
+    select_desktop
+    
+    # Confirm installation
+    confirm_install
+    
+    # Perform installation
+    perform_installation
+}
+
+# ============================================================================
+# Language Selection
+# ============================================================================
+select_language() {
+    echo "Select language:"
+    echo ""
+    echo "  1) English (US)"
+    echo "  2) English (UK)"
+    echo "  3) German"
+    echo "  4) French"
+    echo "  5) Spanish"
+    echo "  6) Italian"
+    echo "  7) Portuguese"
+    echo "  8) Japanese"
+    echo "  9) Chinese"
+    echo " 10) Korean"
+    echo ""
+    
+    read -p "Select language [1-10]: " choice
+    
+    case "$choice" in
+        1) LANGUAGE="en_US.UTF-8" ;;
+        2) LANGUAGE="en_GB.UTF-8" ;;
+        3) LANGUAGE="de_DE.UTF-8" ;;
+        4) LANGUAGE="fr_FR.UTF-8" ;;
+        5) LANGUAGE="es_ES.UTF-8" ;;
+        6) LANGUAGE="it_IT.UTF-8" ;;
+        7) LANGUAGE="pt_PT.UTF-8" ;;
+        8) LANGUAGE="ja_JP.UTF-8" ;;
+        9) LANGUAGE="zh_CN.UTF-8" ;;
+        10) LANGUAGE="ko_KR.UTF-8" ;;
+        *) LANGUAGE="en_US.UTF-8" ;;
+    esac
+    
+    echo ""
+    log_info "Language set to: $LANGUAGE"
+}
+
+# ============================================================================
+# Keyboard Selection
+# ============================================================================
+select_keyboard() {
+    echo "Select keyboard layout:"
+    echo ""
+    echo "  1) US English"
+    echo "  2) UK English"
+    echo "  3) German"
+    echo "  4) French"
+    echo "  5) Spanish"
+    echo "  6) Italian"
+    echo "  7) Portuguese"
+    echo "  8) Japanese"
+    echo "  9) Chinese"
+    echo " 10) Korean"
+    echo ""
+    
+    read -p "Select keyboard [1-10]: " choice
+    
+    case "$choice" in
+        1) KEYBOARD="us" ;;
+        2) KEYBOARD="gb" ;;
+        3) KEYBOARD="de" ;;
+        4) KEYBOARD="fr" ;;
+        5) KEYBOARD="es" ;;
+        6) KEYBOARD="it" ;;
+        7) KEYBOARD="pt" ;;
+        8) KEYBOARD="jp" ;;
+        9) KEYBOARD="cn" ;;
+        10) KEYBOARD="kr" ;;
+        *) KEYBOARD="us" ;;
+    esac
+    
+    echo ""
+    log_info "Keyboard set to: $KEYBOARD"
+}
+
+# ============================================================================
+# Timezone Selection
+# ============================================================================
+select_timezone() {
+    echo "Select timezone:"
+    echo ""
+    echo "  1) UTC"
+    echo "  2) America/New_York (EST)"
+    echo "  3) America/Chicago (CST)"
+    echo "  4) America/Denver (MST)"
+    echo "  5) America/Los_Angeles (PST)"
+    echo "  6) Europe/London (GMT)"
+    echo "  7) Europe/Berlin (CET)"
+    echo "  8) Europe/Paris (CET)"
+    echo "  9) Asia/Tokyo (JST)"
+    echo " 10) Asia/Shanghai (CST)"
+    echo " 11) Asia/Kolkata (IST)"
+    echo " 12) Australia/Sydney (AEST)"
+    echo ""
+    
+    read -p "Select timezone [1-12]: " choice
+    
+    case "$choice" in
+        1) TIMEZONE="UTC" ;;
+        2) TIMEZONE="America/New_York" ;;
+        3) TIMEZONE="America/Chicago" ;;
+        4) TIMEZONE="America/Denver" ;;
+        5) TIMEZONE="America/Los_Angeles" ;;
+        6) TIMEZONE="Europe/London" ;;
+        7) TIMEZONE="Europe/Berlin" ;;
+        8) TIMEZONE="Europe/Paris" ;;
+        9) TIMEZONE="Asia/Tokyo" ;;
+        10) TIMEZONE="Asia/Shanghai" ;;
+        11) TIMEZONE="Asia/Kolkata" ;;
+        12) TIMEZONE="Australia/Sydney" ;;
+        *) TIMEZONE="UTC" ;;
+    esac
+    
+    echo ""
+    log_info "Timezone set to: $TIMEZONE"
+}
+
+# ============================================================================
+# Disk Selection
+# ============================================================================
+select_disk() {
+    echo "Available disks:"
+    echo ""
+    
+    lsblk -d -o NAME,SIZE,TYPE,MODEL | grep -E "disk|loop"
+    
+    echo ""
+    echo "  WARNING: All data on the selected disk will be erased!"
+    echo ""
+    
+    read -p "Select disk (e.g., sda, nvme0n1): " DISK
+    
+    if [[ ! -b "/dev/$DISK" ]]; then
+        log_error "Invalid disk: $DISK"
+        exit 1
+    fi
+    
+    echo ""
+    log_info "Disk selected: /dev/$DISK"
+}
+
+# ============================================================================
+# Partition Scheme Selection
+# ============================================================================
+select_partition_scheme() {
+    echo "Select partition scheme:"
+    echo ""
+    echo "  1) UEFI (GPT + EFI System Partition)"
+    echo "  2) Legacy BIOS (MBR)"
+    echo "  3) Dual Boot (alongside Windows)"
+    echo ""
+    
+    read -p "Select scheme [1-3]: " choice
+    
+    case "$choice" in
+        1) PARTITION_SCHEME="uefi" ;;
+        2) PARTITION_SCHEME="bios" ;;
+        3) PARTITION_SCHEME="dualboot" ;;
+        *) PARTITION_SCHEME="uefi" ;;
+    esac
+    
+    echo ""
+    log_info "Partition scheme: $PARTITION_SCHEME"
+}
+
+# ============================================================================
+# User Creation
+# ============================================================================
+create_user() {
+    echo "Create user account:"
+    echo ""
+    
+    read -p "Username: " USERNAME
+    
+    while true; do
+        read -s -p "Password: " PASSWORD
+        echo ""
+        read -s -p "Confirm password: " PASSWORD_CONFIRM
+        echo ""
+        
+        if [[ "$PASSWORD" == "$PASSWORD_CONFIRM" ]]; then
+            break
+        else
+            echo "Passwords do not match. Please try again."
+        fi
+    done
+    
+    read -p "Hostname [moonos]: " HOSTNAME
+    HOSTNAME="${HOSTNAME:-moonos}"
+    
+    echo ""
+    log_info "User: $USERNAME"
+    log_info "Hostname: $HOSTNAME"
+}
+
+# ============================================================================
+# Desktop Selection
+# ============================================================================
+select_desktop() {
+    echo "Select desktop environment:"
+    echo ""
+    echo "  1) COSMIC (Modern, Rust-based) - Recommended for gaming"
+    echo "  2) GNOME (Polished, macOS-like)"
+    echo "  3) KDE Plasma (Feature-rich, Windows-like)"
+    echo "  4) Hyprland (Wayland, tiling, gaming-optimized)"
+    echo ""
+    
+    read -p "Select desktop [1-4]: " choice
+    
+    case "$choice" in
+        1) DESKTOP="cosmic" ;;
+        2) DESKTOP="gnome" ;;
+        3) DESKTOP="kde" ;;
+        4) DESKTOP="hyprland" ;;
+        *) DESKTOP="cosmic" ;;
+    esac
+    
+    echo ""
+    log_info "Desktop: $DESKTOP"
+}
+
+# ============================================================================
+# Confirm Installation
+# ============================================================================
+confirm_install() {
+    echo ""
+    echo "=========================================="
+    echo "  Installation Summary"
+    echo "=========================================="
+    echo ""
+    echo "  Language:     $LANGUAGE"
+    echo "  Keyboard:     $KEYBOARD"
+    echo "  Timezone:     $TIMEZONE"
+    echo "  Disk:         /dev/$DISK"
+    echo "  Partition:    $PARTITION_SCHEME"
+    echo "  Username:     $USERNAME"
+    echo "  Hostname:     $HOSTNAME"
+    echo "  Desktop:      $DESKTOP"
+    echo ""
+    echo "  WARNING: All data on /dev/$DISK will be erased!"
+    echo ""
+    
+    read -p "Proceed with installation? (y/N): " confirm
+    
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo "Installation cancelled."
+        exit 0
+    fi
+}
+
+# ============================================================================
+# Perform Installation
+# ============================================================================
+perform_installation() {
+    echo ""
+    echo "=========================================="
+    echo "  Installing Moon OS"
+    echo "=========================================="
+    echo ""
+    
+    # Step 1: Partition disk
+    step_partition_disk
+    
+    # Step 2: Format partitions
+    step_format_partitions
+    
+    # Step 3: Mount partitions
+    step_mount_partitions
+    
+    # Step 4: Install base system
+    step_install_base
+    
+    # Step 5: Configure system
+    step_configure_system
+    
+    # Step 6: Install bootloader
+    step_install_bootloader
+    
+    # Step 7: Cleanup
+    step_cleanup
+    
+    echo ""
+    echo "=========================================="
+    echo "  Installation Complete!"
+    echo "=========================================="
+    echo ""
+    echo "Moon OS has been installed successfully!"
+    echo ""
+    echo "Please remove the installation media and reboot."
+    echo ""
+    read -p "Press Enter to reboot..."
+    sudo reboot
+}
+
+# ============================================================================
+# Installation Steps
+# ============================================================================
+
+# Step 1: Partition disk
+step_partition_disk() {
+    log_step "Partitioning disk..."
+    
+    case "$PARTITION_SCHEME" in
+        uefi)
+            # UEFI partition scheme
+            sudo parted -s /dev/$DISK mklabel gpt
+            sudo parted -s /dev/$DISK mkpart ESP fat32 1MiB 512MiB
+            sudo parted -s /dev/$DISK set 1 esp on
+            sudo parted -s /dev/$DISK mkpart primary ext4 512MiB 100%
+            ;;
+        bios)
+            # Legacy BIOS partition scheme
+            sudo parted -s /dev/$DISK mklabel msdos
+            sudo parted -s /dev/$DISK mkpart primary ext4 1MiB 512MiB
+            sudo parted -s /dev/$DISK set 1 boot on
+            sudo parted -s /dev/$DISK mkpart primary ext4 512MiB 100%
+            ;;
+        dualboot)
+            # Dual boot (Windows assumed on first partition)
+            sudo parted -s /dev/$DISK mklabel gpt
+            sudo parted -s /dev/$DISK mkpart ESP fat32 1MiB 512MiB
+            sudo parted -s /dev/$DISK set 1 esp on
+            sudo parted -s /dev/$DISK mkpart primary ext4 512MiB 100%
+            ;;
+    esac
+    
+    log_info "Disk partitioned"
+}
+
+# Step 2: Format partitions
+step_format_partitions() {
+    log_step "Formatting partitions..."
+    
+    case "$PARTITION_SCHEME" in
+        uefi|dualboot)
+            sudo mkfs.fat -F32 -n "EFI" /dev/${DISK}1
+            sudo mkfs.ext4 -F -L "moonos" /dev/${DISK}2
+            ;;
+        bios)
+            sudo mkfs.ext4 -F -L "boot" /dev/${DISK}1
+            sudo mkfs.ext4 -F -L "moonos" /dev/${DISK}2
+            ;;
+    esac
+    
+    log_info "Partitions formatted"
+}
+
+# Step 3: Mount partitions
+step_mount_partitions() {
+    log_step "Mounting partitions..."
+    
+    sudo mkdir -p /mnt
+    sudo mount /dev/${DISK}2 /mnt
+    
+    case "$PARTITION_SCHEME" in
+        uefi|dualboot)
+            sudo mkdir -p /mnt/boot/efi
+            sudo mount /dev/${DISK}1 /mnt/boot/efi
+            ;;
+        bios)
+            sudo mkdir -p /mnt/boot
+            sudo mount /dev/${DISK}1 /mnt/boot
+            ;;
+    esac
+    
+    log_info "Partitions mounted"
+}
+
+# Step 4: Install base system
+step_install_base() {
+    log_step "Installing base system..."
+    
+    # Create package list
+    cat > /tmp/pacman.conf << 'EOF'
+[options]
+SigLevel = Optional DatabaseRequired
+LocalFileSigLevel = Optional TrustAll
+
+[core]
+Include = /etc/pacman.d/mirrorlist
+
+[extra]
+Include = /etc/pacman.d/mirrorlist
+
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+EOF
+    
+    # Install base packages
+    sudo pacstrap -K /mnt base linux linux-firmware base-devel \
+        networkmanager iwd wpa_supplicant \
+        git wget curl \
+        nano vim \
+        sudo \
+        reflector
+    
+    # Generate fstab
+    sudo genfstab -U /mnt >> /mnt/etc/fstab
+    
+    log_info "Base system installed"
+}
+
+# Step 5: Configure system
+step_configure_system() {
+    log_step "Configuring system..."
+    
+    # Configure locale
+    sudo arch-chroot /mnt bash -c "echo '$LANGUAGE UTF-8' > /etc/locale.gen"
+    sudo arch-chroot /mnt bash -c "locale-gen"
+    sudo arch-chroot /mnt bash -c "echo 'LANG=$LANGUAGE' > /etc/locale.conf"
+    
+    # Configure timezone
+    sudo arch-chroot /mnt bash -c "ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime"
+    sudo arch-chroot /mnt bash -c "hwclock --systohc"
+    
+    # Configure keyboard
+    sudo arch-chroot /mnt bash -c "echo 'KEYMAP=$KEYBOARD' > /etc/vconsole.conf"
+    
+    # Configure hostname
+    sudo arch-chroot /mnt bash -c "echo '$HOSTNAME' > /etc/hostname"
+    sudo arch-chroot /mnt bash -c "echo '127.0.0.1 localhost' > /etc/hosts"
+    sudo arch-chroot /mnt bash -c "echo '127.0.1.1 $HOSTNAME' >> /etc/hosts"
+    
+    # Set root password
+    echo "root:moonos" | sudo arch-chroot /mnt chpasswd
+    
+    # Create user
+    sudo arch-chroot /mnt bash -c "useradd -m -G wheel -s /bin/bash $USERNAME"
+    echo "$USERNAME:$PASSWORD" | sudo arch-chroot /mnt chpasswd
+    
+    # Configure sudoers
+    sudo arch-chroot /mnt bash -c "echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers"
+    
+    # Enable services
+    sudo arch-chroot /mnt bash -c "systemctl enable NetworkManager"
+    sudo arch-chroot /mnt bash -c "systemctl enable iwd"
+    
+    log_info "System configured"
+}
+
+# Step 6: Install bootloader
+step_install_bootloader() {
+    log_step "Installing bootloader..."
+    
+    case "$PARTITION_SCHEME" in
+        uefi|dualboot)
+            sudo arch-chroot /mnt bash -c "pacman -S --needed --noconfirm grub efibootmgr"
+            sudo arch-chroot /mnt bash -c "grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=MoonOS --removable"
+            ;;
+        bios)
+            sudo arch-chroot /mnt bash -c "pacman -S --needed --noconfirm grub"
+            sudo arch-chroot /mnt bash -c "grub-install --target=i386-pc /dev/$DISK"
+            ;;
+    esac
+    
+    # Generate GRUB config
+    sudo arch-chroot /mnt bash -c "grub-mkconfig -o /boot/grub/grub.cfg"
+    
+    log_info "Bootloader installed"
+}
+
+# Step 7: Cleanup
+step_cleanup() {
+    log_step "Cleaning up..."
+    
+    # Unmount partitions
+    sudo umount -R /mnt
+    
+    log_info "Cleanup complete"
+}
+
+# ============================================================================
+# Automated Installation
+# ============================================================================
+automated_install() {
+    echo "Moon OS Automated Installation"
+    echo "=============================="
+    echo ""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --disk=*)
+                DISK="${1#*=}"
+                shift
+                ;;
+            --user=*)
+                USERNAME="${1#*=}"
+                shift
+                ;;
+            --password=*)
+                PASSWORD="${1#*=}"
+                shift
+                ;;
+            --hostname=*)
+                HOSTNAME="${1#*=}"
+                shift
+                ;;
+            --timezone=*)
+                TIMEZONE="${1#*=}"
+                shift
+                ;;
+            --keyboard=*)
+                KEYBOARD="${1#*=}"
+                shift
+                ;;
+            --language=*)
+                LANGUAGE="${1#*=}"
+                shift
+                ;;
+            --desktop=*)
+                DESKTOP="${1#*=}"
+                shift
+                ;;
+            --partition=*)
+                PARTITION_SCHEME="${1#*=}"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
+    
+    # Validate required options
+    if [[ -z "$DISK" ]]; then
+        echo "Error: Disk not specified"
+        echo "Usage: $0 --disk=<device> --user=<username> --password=<password>"
+        exit 1
+    fi
+    
+    if [[ -z "$USERNAME" ]]; then
+        echo "Error: Username not specified"
+        exit 1
+    fi
+    
+    if [[ -z "$PASSWORD" ]]; then
+        echo "Error: Password not specified"
+        exit 1
+    fi
+    
+    # Set defaults
+    HOSTNAME="${HOSTNAME:-moonos}"
+    TIMEZONE="${TIMEZONE:-UTC}"
+    KEYBOARD="${KEYBOARD:-us}"
+    LANGUAGE="${LANGUAGE:-en_US.UTF-8}"
+    DESKTOP="${DESKTOP:-cosmic}"
+    PARTITION_SCHEME="${PARTITION_SCHEME:-uefi}"
+    
+    # Perform installation
+    perform_installation
+}
+
+# ============================================================================
+# Main
+# ============================================================================
+main() {
+    case "${1:-interactive}" in
+        interactive)
+            interactive_install
+            ;;
+        automated)
+            shift
+            automated_install "$@"
+            ;;
+        --help|-h)
+            echo "Moon OS Installer v${MOON_INSTALLER_VERSION}"
+            echo ""
+            echo "Usage: $0 [options]"
+            echo ""
+            echo "Options:"
+            echo "  interactive    Run interactive installer (default)"
+            echo "  automated      Run automated installation"
+            echo "  --disk=<dev>   Target disk (e.g., sda, nvme0n1)"
+            echo "  --user=<user>  Username"
+            echo "  --password=<pw> User password"
+            echo "  --hostname=<h> Hostname"
+            echo "  --timezone=<tz> Timezone"
+            echo "  --keyboard=<kb> Keyboard layout"
+            echo "  --language=<lang> Language"
+            echo "  --desktop=<de> Desktop environment"
+            echo "  --partition=<scheme> Partition scheme (uefi/bios/dualboot)"
+            echo "  --help         Show this help"
+            ;;
+        *)
+            echo "Unknown command: $1"
+            echo "Use '$0 --help' for usage information"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

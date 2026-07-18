@@ -1,0 +1,68 @@
+# MoonOS Package: bash
+# GNU Bourne-Again SHell
+
+pkg_name="bash"
+pkg_version="5.2.21"
+pkg_release="1"
+pkg_description="GNU Bourne-Again SHell - the default shell for MoonOS"
+pkg_url="https://www.gnu.org/software/bash/"
+pkg_license="GPL-3.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "ncurses")
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://ftp.gnu.org/gnu/bash/bash-5.2.21.tar.gz"
+)
+
+pkg_sha256=(
+    "c29558245b5c380c1fb767e7734613ba92de1e4175176f5be4482e5e6b43f876"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --enable-shared \
+        --disable-static \
+        --enable-readline \
+        --enable-history \
+        --enable-glob \
+        --enable-brace-expansion \
+        --enable-alias \
+        --enable-job-control \
+        --enable-process-substitution \
+        --enable-remote-hosts \
+        --with-curses
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Link as /bin/sh
+    ln -sf bash "${PKG_INSTALL_DIR}/bin/sh"
+
+    # Create /etc/shells
+    mkdir -p "${PKG_INSTALL_DIR}/etc"
+    cat > "${PKG_INSTALL_DIR}/etc/shells" << 'EOF'
+/bin/sh
+/bin/bash
+EOF
+}
+
+pkg_prelude() {
+    # Ensure ncurses is built first
+    if ! pkg_is_installed "ncurses"; then
+        log_info "ncurses not found, building..."
+        build_package ncurses
+    fi
+}

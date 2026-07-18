@@ -1,0 +1,2392 @@
+#!/bin/bash
+# MOONDESKTOP - Moon OS Premium Desktop Environment
+# Gaming-inspired, modern, beautiful, minimal, responsive
+
+set -euo pipefail
+
+MOON_DESKTOP_VERSION="1.0.0"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+log_design() { echo -e "${MAGENTA}[DESIGN]${NC} $1"; }
+
+# ============================================================================
+# Design System Constants
+# ============================================================================
+MOON_DESIGN="/usr/share/moondesign"
+MOON_THEMES="${MOON_DESIGN}/themes"
+MOON_ICONS="${MOON_DESIGN}/icons"
+MOON_FONTS="${MOON_DESIGN}/fonts"
+MOON_WALLPAPERS="${MOON_DESIGN}/wallpapers"
+MOON_WIDGETS="${MOON_DESIGN}/widgets"
+
+# ============================================================================
+# Design Tokens (CSS-like variables)
+# ============================================================================
+create_design_tokens() {
+    log_step "Creating design tokens..."
+    
+    sudo mkdir -p "${MOON_DESIGN}/tokens"
+    
+    # Color Palette - Gaming Inspired
+    sudo cat > "${MOON_DESIGN}/tokens/colors.json" << 'EOF'
+{
+  "colors": {
+    "primary": {
+      "50": "#f0f9ff",
+      "100": "#e0f2fe",
+      "200": "#bae6fd",
+      "300": "#7dd3fc",
+      "400": "#38bdf8",
+      "500": "#0ea5e9",
+      "600": "#0284c7",
+      "700": "#0369a1",
+      "800": "#075985",
+      "900": "#0c4a6e"
+    },
+    "accent": {
+      "neon": "#00ff88",
+      "cyan": "#00ffff",
+      "magenta": "#ff00ff",
+      "yellow": "#ffff00",
+      "orange": "#ff8800",
+      "red": "#ff0044"
+    },
+    "gaming": {
+      "rgb-cycle": "linear-gradient(90deg, #ff0000, #ff8800, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff)",
+      "neon-glow": "0 0 10px #00ff88, 0 0 20px #00ff88, 0 0 30px #00ff88",
+      "cyber-punk": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+      "dark-mode": {
+        "bg-primary": "#0a0a0f",
+        "bg-secondary": "#12121a",
+        "bg-tertiary": "#1a1a25",
+        "bg-elevated": "#222233",
+        "text-primary": "#ffffff",
+        "text-secondary": "#a0a0b0",
+        "text-tertiary": "#606070",
+        "border": "#2a2a3a",
+        "border-subtle": "#1a1a2a"
+      }
+    },
+    "semantic": {
+      "success": "#00ff88",
+      "warning": "#ffaa00",
+      "error": "#ff4444",
+      "info": "#00aaff"
+    }
+  },
+  "gradients": {
+    "gaming": "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    "cyber": "linear-gradient(90deg, #00ff88 0%, #00ffff 100%)",
+    "sunset": "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+    "ocean": "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+    "dark": "linear-gradient(180deg, #0a0a0f 0%, #12121a 100%)"
+  }
+}
+EOF
+    
+    # Typography
+    sudo cat > "${MOON_DESIGN}/tokens/typography.json" << 'EOF'
+{
+  "fonts": {
+    "primary": "Inter",
+    "secondary": "JetBrains Mono",
+    "gaming": "Orbitron",
+    "mono": "Fira Code"
+  },
+  "sizes": {
+    "xs": "0.75rem",
+    "sm": "0.875rem",
+    "base": "1rem",
+    "lg": "1.125rem",
+    "xl": "1.25rem",
+    "2xl": "1.5rem",
+    "3xl": "2rem",
+    "4xl": "2.5rem",
+    "5xl": "3rem"
+  },
+  "weights": {
+    "light": 300,
+    "regular": 400,
+    "medium": 500,
+    "semibold": 600,
+    "bold": 700
+  }
+}
+EOF
+    
+    # Spacing
+    sudo cat > "${MOON_DESIGN}/tokens/spacing.json" << 'EOF'
+{
+  "spacing": {
+    "0": "0",
+    "1": "0.25rem",
+    "2": "0.5rem",
+    "3": "0.75rem",
+    "4": "1rem",
+    "5": "1.25rem",
+    "6": "1.5rem",
+    "8": "2rem",
+    "10": "2.5rem",
+    "12": "3rem",
+    "16": "4rem",
+    "20": "5rem"
+  },
+  "radius": {
+    "none": "0",
+    "sm": "0.375rem",
+    "md": "0.5rem",
+    "lg": "0.75rem",
+    "xl": "1rem",
+    "2xl": "1.5rem",
+    "full": "9999px"
+  },
+  "shadow": {
+    "sm": "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
+    "md": "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+    "lg": "0 10px 15px -3px rgba(0, 0, 0, 0.1)",
+    "xl": "0 20px 25px -5px rgba(0, 0, 0, 0.1)",
+    "glow": "0 0 15px rgba(0, 255, 136, 0.5)"
+  }
+}
+EOF
+    
+    # Animation
+    sudo cat > "${MOON_DESIGN}/tokens/animation.json" << 'EOF'
+{
+  "animation": {
+    "duration": {
+      "instant": "50ms",
+      "fast": "100ms",
+      "normal": "200ms",
+      "slow": "300ms",
+      "slower": "500ms"
+    },
+    "easing": {
+      "ease": "cubic-bezier(0.4, 0, 0.2, 1)",
+      "ease-in": "cubic-bezier(0.4, 0, 1, 1)",
+      "ease-out": "cubic-bezier(0, 0, 0.2, 1)",
+      "ease-in-out": "cubic-bezier(0.4, 0, 0.2, 1)",
+      "spring": "cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+      "bounce": "cubic-bezier(0.68, -0.55, 0.265, 1.55)"
+    },
+    "fps": {
+      "target": 144,
+      "min": 60,
+      "vrr_min": 48
+    }
+  }
+}
+EOF
+    
+    log_design "Design tokens created"
+}
+
+# ============================================================================
+# Theme Engine
+# ============================================================================
+setup_theme_engine() {
+    log_step "Setting up theme engine..."
+    
+    sudo mkdir -p "${MOON_THEMES}/dark"
+    sudo mkdir -p "${MOON_THEMES}/light"
+    sudo mkdir -p "${MOON_THEMES}/gaming"
+    
+    # Dark Mode Theme (Default)
+    sudo cat > "${MOON_THEMES}/dark/moon-dark.css" << 'EOF'
+/* Moon OS Dark Theme - Gaming Inspired */
+/* Premium, Modern, Beautiful, Minimal */
+
+@theme {
+  --moon-bg-primary: #0a0a0f;
+  --moon-bg-secondary: #12121a;
+  --moon-bg-tertiary: #1a1a25;
+  --moon-bg-elevated: #222233;
+  --moon-bg-hover: #2a2a3a;
+  --moon-bg-active: #333344;
+  
+  --moon-text-primary: #ffffff;
+  --moon-text-secondary: #a0a0b0;
+  --moon-text-tertiary: #606070;
+  
+  --moon-border: #2a2a3a;
+  --moon-border-subtle: #1a1a2a;
+  
+  --moon-accent: #00ff88;
+  --moon-accent-hover: #00cc6a;
+  --moon-accent-active: #009950;
+  
+  --moon-error: #ff4444;
+  --moon-warning: #ffaa00;
+  --moon-success: #00ff88;
+  --moon-info: #00aaff;
+  
+  --moon-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+  --moon-shadow-glow: 0 0 15px rgba(0, 255, 136, 0.3);
+  
+  --moon-radius-sm: 6px;
+  --moon-radius-md: 10px;
+  --moon-radius-lg: 16px;
+  --moon-radius-xl: 24px;
+}
+
+/* Panel Styling */
+.moon-panel {
+  background: var(--moon-bg-primary);
+  border: 1px solid var(--moon-border-subtle);
+  border-radius: var(--moon-radius-lg);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--moon-shadow);
+}
+
+/* Button Styling */
+.moon-button {
+  background: var(--moon-bg-tertiary);
+  border: 1px solid var(--moon-border);
+  border-radius: var(--moon-radius-md);
+  color: var(--moon-text-primary);
+  padding: 8px 16px;
+  transition: all 0.2s ease;
+}
+
+.moon-button:hover {
+  background: var(--moon-bg-hover);
+  border-color: var(--moon-accent);
+  box-shadow: var(--moon-shadow-glow);
+}
+
+.moon-button.primary {
+  background: var(--moon-accent);
+  color: #000000;
+  border: none;
+}
+
+.moon-button.primary:hover {
+  background: var(--moon-accent-hover);
+  box-shadow: var(--moon-shadow-glow);
+}
+
+/* Card Styling */
+.moon-card {
+  background: var(--moon-bg-secondary);
+  border: 1px solid var(--moon-border-subtle);
+  border-radius: var(--moon-radius-lg);
+  padding: 16px;
+}
+
+/* Gaming Glow Effect */
+.gaming-glow {
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.5),
+              0 0 20px rgba(0, 255, 136, 0.3),
+              0 0 30px rgba(0, 255, 136, 0.1);
+}
+
+/* RGB Animation */
+@keyframes rgb-cycle {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+.rgb-animation {
+  animation: rgb-cycle 5s linear infinite;
+}
+
+/* Neon Text */
+.neon-text {
+  color: var(--moon-accent);
+  text-shadow: 0 0 10px var(--moon-accent),
+               0 0 20px var(--moon-accent),
+               0 0 30px var(--moon-accent);
+}
+
+/* Smooth Transitions */
+.smooth-transition {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Blur Effect */
+.glass-effect {
+  backdrop-filter: blur(20px) saturate(180%);
+  background: rgba(10, 10, 15, 0.7);
+}
+
+/* Gaming Dashboard Styling */
+.gaming-dashboard {
+  background: linear-gradient(135deg, #0a0a0f 0%, #1a1a25 100%);
+  border: 1px solid var(--moon-accent);
+  border-radius: var(--moon-radius-xl);
+  box-shadow: var(--moon-shadow-glow);
+}
+
+/* Performance Monitor */
+.perf-monitor {
+  background: var(--moon-bg-secondary);
+  border-radius: var(--moon-radius-md);
+  padding: 8px 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Widget Styling */
+.moon-widget {
+  background: var(--moon-bg-secondary);
+  border: 1px solid var(--moon-border-subtle);
+  border-radius: var(--moon-radius-lg);
+  backdrop-filter: blur(10px);
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--moon-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--moon-bg-tertiary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--moon-bg-hover);
+}
+
+/* Selection Styling */
+::selection {
+  background: var(--moon-accent);
+  color: #000000;
+}
+
+/* Focus Styling */
+*:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--moon-accent);
+}
+
+/* Animation Classes */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 5px var(--moon-accent); }
+  50% { box-shadow: 0 0 20px var(--moon-accent); }
+}
+
+.animate-fadeIn { animation: fadeIn 0.3s ease; }
+.animate-slideUp { animation: slideUp 0.3s ease; }
+.animate-slideDown { animation: slideDown 0.3s ease; }
+.animate-scaleIn { animation: scaleIn 0.3s ease; }
+.animate-pulse { animation: pulse 2s infinite; }
+.animate-glow { animation: glow 2s infinite; }
+EOF
+    
+    log_design "Dark theme created"
+}
+
+# ============================================================================
+# Gaming Dashboard
+# ============================================================================
+setup_gaming_dashboard() {
+    log_step "Setting up gaming dashboard..."
+    
+    sudo mkdir -p /usr/share/moonapps/gaming-dashboard
+    
+    # Gaming Dashboard HTML
+    sudo cat > /usr/share/moonapps/gaming-dashboard/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moon OS Gaming Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">🌙</span>
+                <span class="logo-text">MOON OS</span>
+            </div>
+            <div class="status">
+                <span class="status-item">
+                    <span class="status-dot online"></span>
+                    <span>Gaming Mode</span>
+                </span>
+                <span class="status-item">
+                    <span class="status-dot active"></span>
+                    <span>GameMode</span>
+                </span>
+            </div>
+            <div class="time" id="time">00:00:00</div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Performance Monitors -->
+            <section class="monitors">
+                <div class="monitor cpu">
+                    <div class="monitor-header">
+                        <span class="monitor-icon">🔲</span>
+                        <span class="monitor-title">CPU</span>
+                    </div>
+                    <div class="monitor-value" id="cpu-usage">0%</div>
+                    <div class="monitor-bar">
+                        <div class="monitor-bar-fill" id="cpu-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="monitor-details">
+                        <span id="cpu-temp">0°C</span>
+                        <span id="cpu-freq">0 GHz</span>
+                    </div>
+                </div>
+
+                <div class="monitor gpu">
+                    <div class="monitor-header">
+                        <span class="monitor-icon">🎮</span>
+                        <span class="monitor-title">GPU</span>
+                    </div>
+                    <div class="monitor-value" id="gpu-usage">0%</div>
+                    <div class="monitor-bar">
+                        <div class="monitor-bar-fill" id="gpu-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="monitor-details">
+                        <span id="gpu-temp">0°C</span>
+                        <span id="gpu-vram">0 MB</span>
+                    </div>
+                </div>
+
+                <div class="monitor ram">
+                    <div class="monitor-header">
+                        <span class="monitor-icon">💾</span>
+                        <span class="monitor-title">RAM</span>
+                    </div>
+                    <div class="monitor-value" id="ram-usage">0%</div>
+                    <div class="monitor-bar">
+                        <div class="monitor-bar-fill" id="ram-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="monitor-details">
+                        <span id="ram-used">0 GB</span>
+                        <span id="ram-total">0 GB</span>
+                    </div>
+                </div>
+
+                <div class="monitor network">
+                    <div class="monitor-header">
+                        <span class="monitor-icon">🌐</span>
+                        <span class="monitor-title">NETWORK</span>
+                    </div>
+                    <div class="monitor-value" id="net-speed">0 MB/s</div>
+                    <div class="monitor-bar">
+                        <div class="monitor-bar-fill" id="net-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="monitor-details">
+                        <span id="net-up">↑ 0 MB/s</span>
+                        <span id="net-down">↓ 0 MB/s</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- FPS Monitor -->
+            <section class="fps-section">
+                <div class="fps-display">
+                    <div class="fps-value" id="fps">0</div>
+                    <div class="fps-label">FPS</div>
+                    <div class="fps-target">TARGET: 144</div>
+                </div>
+                <div class="fps-graph" id="fps-graph"></div>
+            </section>
+
+            <!-- Game Launcher -->
+            <section class="game-launcher">
+                <h2 class="section-title">Game Library</h2>
+                <div class="games-grid">
+                    <div class="game-card" data-game="cyberpunk">
+                        <div class="game-cover" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <span class="game-icon">🎮</span>
+                        </div>
+                        <div class="game-info">
+                            <div class="game-title">Cyberpunk 2077</div>
+                            <div class="game-status">Ready</div>
+                        </div>
+                        <button class="game-play">PLAY</button>
+                    </div>
+                    <div class="game-card" data-game="elden">
+                        <div class="game-cover" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <span class="game-icon">⚔️</span>
+                        </div>
+                        <div class="game-info">
+                            <div class="game-title">Elden Ring</div>
+                            <div class="game-status">Ready</div>
+                        </div>
+                        <button class="game-play">PLAY</button>
+                    </div>
+                    <div class="game-card" data-game="baldurs">
+                        <div class="game-cover" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                            <span class="game-icon">🎲</span>
+                        </div>
+                        <div class="game-info">
+                            <div class="game-title">Baldur's Gate 3</div>
+                            <div class="game-status">Ready</div>
+                        </div>
+                        <button class="game-play">PLAY</button>
+                    </div>
+                    <div class="game-card" data-game="hogwarts">
+                        <div class="game-cover" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                            <span class="game-icon">🧙</span>
+                        </div>
+                        <div class="game-info">
+                            <div class="game-title">Hogwarts Legacy</div>
+                            <div class="game-status">Ready</div>
+                        </div>
+                        <button class="game-play">PLAY</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Quick Settings -->
+            <section class="quick-settings">
+                <h2 class="section-title">Quick Settings</h2>
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <span class="setting-label">GameMode</span>
+                        <label class="toggle">
+                            <input type="checkbox" id="gamemode" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <span class="setting-label">MangoHud</span>
+                        <label class="toggle">
+                            <input type="checkbox" id="mangohud" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <span class="setting-label">Gamescope</span>
+                        <label class="toggle">
+                            <input type="checkbox" id="gamescope">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <span class="setting-label">VRR</span>
+                        <label class="toggle">
+                            <input type="checkbox" id="vrr" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <span class="setting-label">HDR</span>
+                        <label class="toggle">
+                            <input type="checkbox" id="hdr">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <span class="setting-label">RGB</span>
+                        <label class="toggle">
+                            <input type="checkbox" id="rgb" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <span>Moon OS Gaming Dashboard v1.0.0</span>
+            <span>Security: Active</span>
+            <span id="uptime">Uptime: 0h 0m</span>
+        </footer>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
+HTMLEOF
+    
+    # Gaming Dashboard CSS
+    sudo cat > /usr/share/moonapps/gaming-dashboard/dashboard.css << 'CSSEOF'
+/* Moon OS Gaming Dashboard Styles */
+/* Gaming-inspired, Modern, Premium */
+
+:root {
+    --bg-primary: #0a0a0f;
+    --bg-secondary: #12121a;
+    --bg-tertiary: #1a1a25;
+    --bg-elevated: #222233;
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0b0;
+    --accent: #00ff88;
+    --accent-hover: #00cc6a;
+    --border: #2a2a3a;
+    --glow: 0 0 15px rgba(0, 255, 136, 0.5);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+.dashboard {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    padding: 20px;
+    gap: 20px;
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    background: var(--bg-secondary);
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.logo-icon {
+    font-size: 24px;
+}
+
+.logo-text {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    text-shadow: 0 0 10px var(--accent);
+}
+
+.status {
+    display: flex;
+    gap: 20px;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s infinite;
+}
+
+.status-dot.online {
+    background: #00ff88;
+}
+
+.status-dot.active {
+    background: #00aaff;
+}
+
+.time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px;
+    color: var(--accent);
+}
+
+/* Main Content */
+.main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Performance Monitors */
+.monitors {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.monitor {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.3s ease;
+}
+
+.monitor:hover {
+    border-color: var(--accent);
+    box-shadow: var(--glow);
+}
+
+.monitor-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.monitor-icon {
+    font-size: 20px;
+}
+
+.monitor-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.monitor-value {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 12px;
+}
+
+.monitor-bar {
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.monitor-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #00ffff);
+    border-radius: 3px;
+    transition: width 0.5s ease;
+}
+
+.monitor-details {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* FPS Section */
+.fps-section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.fps-display {
+    text-align: center;
+}
+
+.fps-value {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 72px;
+    font-weight: 700;
+    color: var(--accent);
+    text-shadow: 0 0 20px var(--accent);
+    line-height: 1;
+}
+
+.fps-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+}
+
+.fps-target {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+.fps-graph {
+    flex: 1;
+    height: 80px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Game Launcher */
+.game-launcher {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+}
+
+.section-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: var(--text-primary);
+}
+
+.games-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.game-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.game-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent);
+    box-shadow: var(--glow);
+}
+
+.game-cover {
+    height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.game-icon {
+    font-size: 48px;
+}
+
+.game-info {
+    padding: 16px;
+}
+
+.game-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.game-status {
+    font-size: 12px;
+    color: var(--accent);
+}
+
+.game-play {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.game-play:hover {
+    background: var(--accent-hover);
+    box-shadow: var(--glow);
+}
+
+/* Quick Settings */
+.quick-settings {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+}
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 16px;
+}
+
+.setting-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+}
+
+.setting-label {
+    font-size: 14px;
+}
+
+/* Toggle Switch */
+.toggle {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 24px;
+}
+
+.toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg-elevated);
+    border-radius: 24px;
+    transition: 0.3s;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background: var(--text-secondary);
+    border-radius: 50%;
+    transition: 0.3s;
+}
+
+.toggle input:checked + .toggle-slider {
+    background: var(--accent);
+}
+
+.toggle input:checked + .toggle-slider:before {
+    transform: translateX(24px);
+    background: #000;
+}
+
+/* Footer */
+.footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Animations */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+@keyframes glow {
+    0%, 100% { box-shadow: 0 0 5px var(--accent); }
+    50% { box-shadow: 0 0 20px var(--accent); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .dashboard {
+        padding: 10px;
+    }
+    
+    .header {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .fps-section {
+        flex-direction: column;
+    }
+    
+    .fps-value {
+        font-size: 48px;
+    }
+}
+CSSEOF
+    
+    # Gaming Dashboard JavaScript
+    sudo cat > /usr/share/moonapps/gaming-dashboard/dashboard.js << 'JSEOF'
+// Moon OS Gaming Dashboard JavaScript
+// Real-time performance monitoring
+
+class MoonDashboard {
+    constructor() {
+        this.updateInterval = 100; // 100ms updates
+        this.fpsHistory = [];
+        this.maxFpsHistory = 100;
+        this.startTime = Date.now();
+        
+        this.init();
+    }
+    
+    init() {
+        this.updateTime();
+        this.updatePerformance();
+        this.setupEventListeners();
+        
+        setInterval(() => this.updateTime(), 1000);
+        setInterval(() => this.updatePerformance(), this.updateInterval);
+        setInterval(() => this.updateFpsGraph(), 100);
+    }
+    
+    updateTime() {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+        document.getElementById('time').textContent = timeStr;
+        
+        // Update uptime
+        const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+        const hours = Math.floor(elapsed / 3600);
+        const minutes = Math.floor((elapsed % 3600) / 60);
+        document.getElementById('uptime').textContent = `Uptime: ${hours}h ${minutes}m`;
+    }
+    
+    updatePerformance() {
+        // Simulate performance data (in real implementation, this would read from system)
+        const cpuUsage = Math.random() * 30 + 40; // 40-70%
+        const gpuUsage = Math.random() * 40 + 50; // 50-90%
+        const ramUsage = Math.random() * 20 + 60; // 60-80%
+        const cpuTemp = Math.floor(Math.random() * 20 + 50); // 50-70°C
+        const gpuTemp = Math.floor(Math.random() * 25 + 55); // 55-80°C
+        const cpuFreq = (Math.random() * 1.5 + 3.5).toFixed(2); // 3.5-5.0 GHz
+        const gpuVram = Math.floor(Math.random() * 4000 + 6000); // 6-10 GB
+        const ramUsed = (Math.random() * 4 + 12).toFixed(1); // 12-16 GB
+        const ramTotal = 32;
+        const netSpeed = (Math.random() * 50 + 10).toFixed(1); // 10-60 MB/s
+        const fps = Math.floor(Math.random() * 30 + 120); // 120-150 FPS
+        
+        // Update CPU
+        document.getElementById('cpu-usage').textContent = `${Math.floor(cpuUsage)}%`;
+        document.getElementById('cpu-bar').style.width = `${cpuUsage}%`;
+        document.getElementById('cpu-temp').textContent = `${cpuTemp}°C`;
+        document.getElementById('cpu-freq').textContent = `${cpuFreq} GHz`;
+        
+        // Update GPU
+        document.getElementById('gpu-usage').textContent = `${Math.floor(gpuUsage)}%`;
+        document.getElementById('gpu-bar').style.width = `${gpuUsage}%`;
+        document.getElementById('gpu-temp').textContent = `${gpuTemp}°C`;
+        document.getElementById('gpu-vram').textContent = `${gpuVram} MB`;
+        
+        // Update RAM
+        document.getElementById('ram-usage').textContent = `${Math.floor(ramUsage)}%`;
+        document.getElementById('ram-bar').style.width = `${ramUsage}%`;
+        document.getElementById('ram-used').textContent = `${ramUsed} GB`;
+        document.getElementById('ram-total').textContent = `${ramTotal} GB`;
+        
+        // Update Network
+        document.getElementById('net-speed').textContent = `${netSpeed} MB/s`;
+        document.getElementById('net-bar').style.width = `${Math.min(netSpeed * 2, 100)}%`;
+        document.getElementById('net-up').textContent = `↑ ${(netSpeed * 0.3).toFixed(1)} MB/s`;
+        document.getElementById('net-down').textContent = `↓ ${(netSpeed * 0.7).toFixed(1)} MB/s`;
+        
+        // Update FPS
+        document.getElementById('fps').textContent = fps;
+        this.fpsHistory.push(fps);
+        if (this.fpsHistory.length > this.maxFpsHistory) {
+            this.fpsHistory.shift();
+        }
+        
+        // Color code FPS
+        const fpsElement = document.getElementById('fps');
+        if (fps >= 144) {
+            fpsElement.style.color = '#00ff88';
+        } else if (fps >= 100) {
+            fpsElement.style.color = '#ffaa00';
+        } else {
+            fpsElement.style.color = '#ff4444';
+        }
+    }
+    
+    updateFpsGraph() {
+        const canvas = document.getElementById('fps-graph');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (this.fpsHistory.length < 2) return;
+        
+        const step = canvas.width / this.maxFpsHistory;
+        const scale = canvas.height / 200; // Max 200 FPS
+        
+        // Draw graph
+        ctx.beginPath();
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 2;
+        
+        this.fpsHistory.forEach((fps, i) => {
+            const x = i * step;
+            const y = canvas.height - (fps * scale);
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        
+        ctx.stroke();
+        
+        // Draw glow effect
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#00ff88';
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+    
+    setupEventListeners() {
+        // Game play buttons
+        document.querySelectorAll('.game-play').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const game = e.target.closest('.game-card').dataset.game;
+                this.launchGame(game);
+            });
+        });
+        
+        // Toggle switches
+        document.querySelectorAll('.toggle input').forEach(toggle => {
+            toggle.addEventListener('change', (e) => {
+                const setting = e.target.id;
+                const enabled = e.target.checked;
+                this.toggleSetting(setting, enabled);
+            });
+        });
+    }
+    
+    launchGame(game) {
+        console.log(`Launching ${game}...`);
+        // In real implementation, this would launch the game via Steam/Proton
+    }
+    
+    toggleSetting(setting, enabled) {
+        console.log(`Setting ${setting}: ${enabled}`);
+        // In real implementation, this would toggle the setting
+    }
+}
+
+// Initialize dashboard
+document.addEventListener('DOMContentLoaded', () => {
+    new MoonDashboard();
+});
+JSEOF
+    
+    log_design "Gaming dashboard created"
+}
+
+# ============================================================================
+# Control Center
+# ============================================================================
+setup_control_center() {
+    log_step "Setting up control center..."
+    
+    sudo mkdir -p /usr/share/moonapps/control-center
+    
+    # Control Center HTML
+    sudo cat > /usr/share/moonapps/control-center/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moon OS Control Center</title>
+    <link rel="stylesheet" href="control-center.css">
+</head>
+<body>
+    <div class="control-center">
+        <header class="cc-header">
+            <h1>Control Center</h1>
+            <button class="close-btn">×</button>
+        </header>
+        
+        <main class="cc-main">
+            <!-- Quick Toggles -->
+            <section class="quick-toggles">
+                <div class="toggle-card active">
+                    <span class="toggle-icon">📶</span>
+                    <span class="toggle-label">Wi-Fi</span>
+                    <span class="toggle-status">Connected</span>
+                </div>
+                <div class="toggle-card active">
+                    <span class="toggle-icon">🔵</span>
+                    <span class="toggle-label">Bluetooth</span>
+                    <span class="toggle-status">On</span>
+                </div>
+                <div class="toggle-card">
+                    <span class="toggle-icon">✈️</span>
+                    <span class="toggle-label">Airplane</span>
+                    <span class="toggle-status">Off</span>
+                </div>
+                <div class="toggle-card active">
+                    <span class="toggle-icon">🌙</span>
+                    <span class="toggle-label">Night Light</span>
+                    <span class="toggle-status">On</span>
+                </div>
+            </section>
+            
+            <!-- Sliders -->
+            <section class="sliders">
+                <div class="slider-item">
+                    <span class="slider-label">Brightness</span>
+                    <input type="range" class="slider" min="0" max="100" value="80">
+                    <span class="slider-value">80%</span>
+                </div>
+                <div class="slider-item">
+                    <span class="slider-label">Volume</span>
+                    <input type="range" class="slider" min="0" max="100" value="75">
+                    <span class="slider-value">75%</span>
+                </div>
+            </section>
+            
+            <!-- Settings Grid -->
+            <section class="settings-grid">
+                <div class="settings-card">
+                    <h3>Display</h3>
+                    <div class="setting-row">
+                        <span>Resolution</span>
+                        <select>
+                            <option>1920 x 1080</option>
+                            <option>2560 x 1440</option>
+                            <option>3840 x 2160</option>
+                        </select>
+                    </div>
+                    <div class="setting-row">
+                        <span>Refresh Rate</span>
+                        <select>
+                            <option>144 Hz</option>
+                            <option>165 Hz</option>
+                            <option>240 Hz</option>
+                        </select>
+                    </div>
+                    <div class="setting-row">
+                        <span>Scaling</span>
+                        <select>
+                            <option>100%</option>
+                            <option>125%</option>
+                            <option>150%</option>
+                            <option>200%</option>
+                        </select>
+                    </div>
+                    <div class="setting-row">
+                        <span>HDR</span>
+                        <label class="toggle">
+                            <input type="checkbox">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-row">
+                        <span>VRR</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="settings-card">
+                    <h3>Gaming</h3>
+                    <div class="setting-row">
+                        <span>GameMode</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-row">
+                        <span>MangoHud</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-row">
+                        <span>Gamescope</span>
+                        <label class="toggle">
+                            <input type="checkbox">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-row">
+                        <span>Power Profile</span>
+                        <select>
+                            <option>Performance</option>
+                            <option>Balanced</option>
+                            <option>Power Saver</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="settings-card">
+                    <h3>Network</h3>
+                    <div class="setting-row">
+                        <span>Wi-Fi</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-row">
+                        <span>Bluetooth</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-row">
+                        <span>VPN</span>
+                        <label class="toggle">
+                            <input type="checkbox">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="settings-card">
+                    <h3>RGB</h3>
+                    <div class="rgb-presets">
+                        <button class="rgb-preset active" style="background: linear-gradient(135deg, #ff0000, #00ff00, #0000ff);">Rainbow</button>
+                        <button class="rgb-preset" style="background: #00ff88;">Static</button>
+                        <button class="rgb-preset" style="background: linear-gradient(135deg, #ff0000, #ff8800);">Fire</button>
+                        <button class="rgb-preset" style="background: linear-gradient(135deg, #0000ff, #00ffff);">Ocean</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="control-center.js"></script>
+</body>
+</html>
+HTMLEOF
+    
+    log_design "Control center created"
+}
+
+# ============================================================================
+# Software Center
+# ============================================================================
+setup_software_center() {
+    log_step "Setting up software center..."
+    
+    sudo mkdir -p /usr/share/moonapps/software-center
+    
+    # Software Center HTML
+    sudo cat > /usr/share/moonapps/software-center/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moon OS Software Center</title>
+    <link rel="stylesheet" href="software-center.css">
+</head>
+<body>
+    <div class="software-center">
+        <header class="sc-header">
+            <div class="sc-logo">
+                <span class="logo-icon">🌙</span>
+                <span class="logo-text">Software Center</span>
+            </div>
+            <div class="sc-search">
+                <input type="text" placeholder="Search applications...">
+            </div>
+            <div class="sc-nav">
+                <button class="nav-btn active">Home</button>
+                <button class="nav-btn">Updates</button>
+                <button class="nav-btn">Installed</button>
+            </div>
+        </header>
+        
+        <main class="sc-main">
+            <!-- Featured -->
+            <section class="featured">
+                <h2>Featured Applications</h2>
+                <div class="featured-grid">
+                    <div class="featured-card" style="background: linear-gradient(135deg, #1b2838 0%, #2a475e 100%);">
+                        <span class="featured-icon">🎮</span>
+                        <div class="featured-info">
+                            <h3>Steam</h3>
+                            <p>The ultimate gaming platform</p>
+                            <button class="install-btn">Install</button>
+                        </div>
+                    </div>
+                    <div class="featured-card" style="background: linear-gradient(135deg, #47b2ff 0%, #1a1a2e 100%);">
+                        <span class="featured-icon">💬</span>
+                        <div class="featured-info">
+                            <h3>Discord</h3>
+                            <p>Chat for gamers</p>
+                            <button class="install-btn">Install</button>
+                        </div>
+                    </div>
+                    <div class="featured-card" style="background: linear-gradient(135deg, #5865f2 0%, #2c2f33 100%);">
+                        <span class="featured-icon">🎬</span>
+                        <div class="featured-info">
+                            <h3>OBS Studio</h3>
+                            <p>Streaming & recording</p>
+                            <button class="install-btn">Install</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Categories -->
+            <section class="categories">
+                <h2>Categories</h2>
+                <div class="category-grid">
+                    <div class="category-card">
+                        <span class="category-icon">🎮</span>
+                        <span class="category-name">Gaming</span>
+                    </div>
+                    <div class="category-card">
+                        <span class="category-icon">💻</span>
+                        <span class="category-name">Development</span>
+                    </div>
+                    <div class="category-card">
+                        <span class="category-icon">🎨</span>
+                        <span class="category-name">Creative</span>
+                    </div>
+                    <div class="category-card">
+                        <span class="category-icon">🔧</span>
+                        <span class="category-name">Utilities</span>
+                    </div>
+                    <div class="category-card">
+                        <span class="category-icon">🌐</span>
+                        <span class="category-name">Internet</span>
+                    </div>
+                    <div class="category-card">
+                        <span class="category-icon">📦</span>
+                        <span class="category-name">System</span>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Popular Apps -->
+            <section class="popular">
+                <h2>Popular Applications</h2>
+                <div class="apps-grid">
+                    <div class="app-card">
+                        <span class="app-icon">🦊</span>
+                        <div class="app-info">
+                            <h4>Firefox</h4>
+                            <span class="app-version">v133.0</span>
+                        </div>
+                        <button class="install-btn">Install</button>
+                    </div>
+                    <div class="app-card">
+                        <span class="app-icon">📁</span>
+                        <div class="app-info">
+                            <h4>VS Code</h4>
+                            <span class="app-version">v1.96.0</span>
+                        </div>
+                        <button class="install-btn">Install</button>
+                    </div>
+                    <div class="app-card">
+                        <span class="app-icon">🎵</span>
+                        <div class="app-info">
+                            <h4>Spotify</h4>
+                            <span class="app-version">v1.2.0</span>
+                        </div>
+                        <button class="install-btn">Install</button>
+                    </div>
+                    <div class="app-card">
+                        <span class="app-icon">🖼️</span>
+                        <div class="app-info">
+                            <h4>GIMP</h4>
+                            <span class="app-version">v2.10.36</span>
+                        </div>
+                        <button class="install-btn">Install</button>
+                    </div>
+                    <div class="app-card">
+                        <span class="app-icon">📺</span>
+                        <div class="app-info">
+                            <h4>VLC</h4>
+                            <span class="app-version">v3.0.21</span>
+                        </div>
+                        <button class="install-btn">Install</button>
+                    </div>
+                    <div class="app-card">
+                        <span class="app-icon">🔧</span>
+                        <div class="app-info">
+                            <h4>Blender</h4>
+                            <span class="app-version">v4.2.0</span>
+                        </div>
+                        <button class="install-btn">Install</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="software-center.js"></script>
+</body>
+</html>
+HTMLEOF
+    
+    log_design "Software center created"
+}
+
+# ============================================================================
+# Theme Engine
+# ============================================================================
+setup_theme_engine_full() {
+    log_step "Setting up theme engine..."
+    
+    sudo mkdir -p /usr/share/moonapps/theme-engine
+    
+    # Theme Engine HTML
+    sudo cat > /usr/share/moonapps/theme-engine/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moon OS Theme Engine</title>
+    <link rel="stylesheet" href="theme-engine.css">
+</head>
+<body>
+    <div class="theme-engine">
+        <header class="te-header">
+            <h1>Theme Engine</h1>
+            <button class="close-btn">×</button>
+        </header>
+        
+        <main class="te-main">
+            <!-- Theme Preview -->
+            <section class="theme-preview">
+                <div class="preview-window">
+                    <div class="preview-titlebar">
+                        <span class="preview-dot red"></span>
+                        <span class="preview-dot yellow"></span>
+                        <span class="preview-dot green"></span>
+                        <span class="preview-title">Preview</span>
+                    </div>
+                    <div class="preview-content">
+                        <div class="preview-button primary">Primary</div>
+                        <div class="preview-button secondary">Secondary</div>
+                        <div class="preview-card">
+                            <h4>Card Title</h4>
+                            <p>Card content with accent color</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Theme Selection -->
+            <section class="theme-selection">
+                <h2>Themes</h2>
+                <div class="theme-grid">
+                    <div class="theme-card active" data-theme="dark">
+                        <div class="theme-swatch dark"></div>
+                        <span>Moon Dark</span>
+                    </div>
+                    <div class="theme-card" data-theme="gaming">
+                        <div class="theme-swatch gaming"></div>
+                        <span>Gaming</span>
+                    </div>
+                    <div class="theme-card" data-theme="cyber">
+                        <div class="theme-swatch cyber"></div>
+                        <span>Cyberpunk</span>
+                    </div>
+                    <div class="theme-card" data-theme="neon">
+                        <div class="theme-swatch neon"></div>
+                        <span>Neon</span>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Accent Colors -->
+            <section class="accent-colors">
+                <h2>Accent Colors</h2>
+                <div class="color-grid">
+                    <button class="color-btn active" style="background: #00ff88;" data-color="#00ff88"></button>
+                    <button class="color-btn" style="background: #00aaff;" data-color="#00aaff"></button>
+                    <button class="color-btn" style="background: #ff00ff;" data-color="#ff00ff"></button>
+                    <button class="color-btn" style="background: #ffaa00;" data-color="#ffaa00"></button>
+                    <button class="color-btn" style="background: #ff4444;" data-color="#ff4444"></button>
+                    <button class="color-btn" style="background: #ffffff;" data-color="#ffffff"></button>
+                </div>
+            </section>
+            
+            <!-- Icon Packs -->
+            <section class="icon-packs">
+                <h2>Icon Packs</h2>
+                <div class="icon-grid">
+                    <div class="icon-card active">
+                        <div class="icon-preview moon-icons">🌙</div>
+                        <span>Moon Icons</span>
+                    </div>
+                    <div class="icon-card">
+                        <div class="icon-preview">📁</div>
+                        <span>Standard</span>
+                    </div>
+                    <div class="icon-card">
+                        <div class="icon-preview">🎮</div>
+                        <span>Gaming</span>
+                    </div>
+                    <div class="icon-card">
+                        <div class="icon-preview">🔮</div>
+                        <span>Neon</span>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Wallpapers -->
+            <section class="wallpapers">
+                <h2>Wallpapers</h2>
+                <div class="wallpaper-grid">
+                    <div class="wallpaper-card active" style="background: linear-gradient(135deg, #0a0a0f, #1a1a25);">
+                        <span>Dark</span>
+                    </div>
+                    <div class="wallpaper-card" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                        <span>Cyber</span>
+                    </div>
+                    <div class="wallpaper-card" style="background: linear-gradient(135deg, #00ff88, #00ffff);">
+                        <span>Neon</span>
+                    </div>
+                    <div class="wallpaper-card" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
+                        <span>Sunset</span>
+                    </div>
+                    <div class="wallpaper-card dynamic" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
+                        <span>Dynamic</span>
+                        <span class="dynamic-badge">Live</span>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Custom Colors -->
+            <section class="custom-colors">
+                <h2>Custom Color</h2>
+                <div class="color-picker">
+                    <input type="color" value="#00ff88" id="custom-color">
+                    <span class="color-value">#00ff88</span>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="theme-engine.js"></script>
+</body>
+</html>
+HTMLEOF
+    
+    log_design "Theme engine created"
+}
+
+# ============================================================================
+# System Managers
+# ============================================================================
+setup_system_managers() {
+    log_step "Setting up system managers..."
+    
+    sudo mkdir -p /usr/share/moonapps/kernel-manager
+    sudo mkdir -p /usr/share/moonapps/backup-manager
+    sudo mkdir -p /usr/share/moonapps/driver-manager
+    
+    # Kernel Manager
+    sudo cat > /usr/share/moonapps/kernel-manager/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kernel Manager</title>
+    <link rel="stylesheet" href="manager.css">
+</head>
+<body>
+    <div class="manager">
+        <header class="mgr-header">
+            <h1>Kernel Manager</h1>
+            <button class="close-btn">×</button>
+        </header>
+        <main class="mgr-main">
+            <div class="current-kernel">
+                <h2>Current Kernel</h2>
+                <div class="kernel-info">
+                    <span class="kernel-version">6.12.5-moon</span>
+                    <span class="kernel-status active">Active</span>
+                </div>
+            </div>
+            <div class="kernel-list">
+                <h2>Available Kernels</h2>
+                <div class="kernel-item">
+                    <div class="kernel-details">
+                        <span class="kernel-name">moon-kernel-gaming</span>
+                        <span class="kernel-ver">6.12.5</span>
+                    </div>
+                    <button class="install-btn">Install</button>
+                </div>
+                <div class="kernel-item">
+                    <div class="kernel-details">
+                        <span class="kernel-name">moon-kernel-stable</span>
+                        <span class="kernel-ver">6.12.5</span>
+                    </div>
+                    <button class="install-btn">Install</button>
+                </div>
+                <div class="kernel-item">
+                    <div class="kernel-details">
+                        <span class="kernel-name">moon-kernel-hardened</span>
+                        <span class="kernel-ver">6.12.5</span>
+                    </div>
+                    <button class="install-btn">Install</button>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
+HTMLEOF
+    
+    # Backup Manager
+    sudo cat > /usr/share/moonapps/backup-manager/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backup Manager</title>
+    <link rel="stylesheet" href="manager.css">
+</head>
+<body>
+    <div class="manager">
+        <header class="mgr-header">
+            <h1>Backup Manager</h1>
+            <button class="close-btn">×</button>
+        </header>
+        <main class="mgr-main">
+            <div class="backup-actions">
+                <button class="action-btn primary">
+                    <span class="action-icon">💾</span>
+                    <span class="action-text">Create Backup</span>
+                </button>
+                <button class="action-btn">
+                    <span class="action-icon">🔄</span>
+                    <span class="action-text">Restore</span>
+                </button>
+                <button class="action-btn">
+                    <span class="action-icon">📸</span>
+                    <span class="action-text">Snapshot</span>
+                </button>
+            </div>
+            <div class="backup-list">
+                <h2>Recent Backups</h2>
+                <div class="backup-item">
+                    <div class="backup-info">
+                        <span class="backup-name">backup-20240115-120000</span>
+                        <span class="backup-date">Today 12:00</span>
+                    </div>
+                    <span class="backup-size">2.3 GB</span>
+                </div>
+                <div class="backup-item">
+                    <div class="backup-info">
+                        <span class="backup-name">backup-20240114-120000</span>
+                        <span class="backup-date">Yesterday 12:00</span>
+                    </div>
+                    <span class="backup-size">2.2 GB</span>
+                </div>
+            </div>
+            <div class="snapshot-list">
+                <h2>Snapshots</h2>
+                <div class="snapshot-item">
+                    <div class="snapshot-info">
+                        <span class="snapshot-name">moon-20240115-100000</span>
+                        <span class="snapshot-date">Today 10:00</span>
+                    </div>
+                    <button class="restore-btn">Restore</button>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
+HTMLEOF
+    
+    # Driver Manager
+    sudo cat > /usr/share/moonapps/driver-manager/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Driver Manager</title>
+    <link rel="stylesheet" href="manager.css">
+</head>
+<body>
+    <div class="manager">
+        <header class="mgr-header">
+            <h1>Driver Manager</h1>
+            <button class="close-btn">×</button>
+        </header>
+        <main class="mgr-main">
+            <div class="driver-list">
+                <h2>Graphics Drivers</h2>
+                <div class="driver-item">
+                    <div class="driver-info">
+                        <span class="driver-name">NVIDIA 550.120</span>
+                        <span class="driver-status active">Installed</span>
+                    </div>
+                    <button class="update-btn">Update</button>
+                </div>
+                <div class="driver-item">
+                    <div class="driver-info">
+                        <span class="driver-name">AMD Mesa 24.3.1</span>
+                        <span class="driver-status active">Installed</span>
+                    </div>
+                    <button class="update-btn">Update</button>
+                </div>
+                <div class="driver-item">
+                    <div class="driver-info">
+                        <span class="driver-name">Intel Arc</span>
+                        <span class="driver-status">Available</span>
+                    </div>
+                    <button class="install-btn">Install</button>
+                </div>
+            </div>
+            <div class="driver-list">
+                <h2>Audio Drivers</h2>
+                <div class="driver-item">
+                    <div class="driver-info">
+                        <span class="driver-name">PipeWire 1.2.7</span>
+                        <span class="driver-status active">Installed</span>
+                    </div>
+                    <button class="update-btn">Update</button>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
+HTMLEOF
+    
+    log_design "System managers created"
+}
+
+# ============================================================================
+# RGB Controller
+# ============================================================================
+setup_rgb_controller() {
+    log_step "Setting up RGB controller..."
+    
+    sudo mkdir -p /usr/share/moonapps/rgb-controller
+    
+    # RGB Controller HTML
+    sudo cat > /usr/share/moonapps/rgb-controller/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RGB Controller</title>
+    <link rel="stylesheet" href="rgb-controller.css">
+</head>
+<body>
+    <div class="rgb-controller">
+        <header class="rgb-header">
+            <h1>RGB Controller</h1>
+            <button class="close-btn">×</button>
+        </header>
+        <main class="rgb-main">
+            <!-- Presets -->
+            <section class="rgb-presets">
+                <h2>Presets</h2>
+                <div class="preset-grid">
+                    <button class="preset-btn active">
+                        <span class="preset-preview rainbow"></span>
+                        <span>Rainbow</span>
+                    </button>
+                    <button class="preset-btn">
+                        <span class="preset-preview static" style="background: #00ff88;"></span>
+                        <span>Static</span>
+                    </button>
+                    <button class="preset-btn">
+                        <span class="preset-preview breathing"></span>
+                        <span>Breathing</span>
+                    </button>
+                    <button class="preset-btn">
+                        <span class="preset-preview fire"></span>
+                        <span>Fire</span>
+                    </button>
+                    <button class="preset-btn">
+                        <span class="preset-preview wave"></span>
+                        <span>Wave</span>
+                    </button>
+                    <button class="preset-btn">
+                        <span class="preset-preview reactive"></span>
+                        <span>Reactive</span>
+                    </button>
+                </div>
+            </section>
+            
+            <!-- Color Picker -->
+            <section class="color-picker">
+                <h2>Color</h2>
+                <div class="color-wheel">
+                    <input type="color" value="#00ff88">
+                </div>
+                <div class="color-presets">
+                    <button class="color-btn" style="background: #ff0000;"></button>
+                    <button class="color-btn" style="background: #00ff00;"></button>
+                    <button class="color-btn" style="background: #0000ff;"></button>
+                    <button class="color-btn" style="background: #ffff00;"></button>
+                    <button class="color-btn" style="background: #ff00ff;"></button>
+                    <button class="color-btn" style="background: #00ffff;"></button>
+                    <button class="color-btn active" style="background: #00ff88;"></button>
+                </div>
+            </section>
+            
+            <!-- Speed & Brightness -->
+            <section class="rgb-controls">
+                <div class="control-item">
+                    <span>Speed</span>
+                    <input type="range" class="slider" min="0" max="100" value="50">
+                    <span class="control-value">50%</span>
+                </div>
+                <div class="control-item">
+                    <span>Brightness</span>
+                    <input type="range" class="slider" min="0" max="100" value="80">
+                    <span class="control-value">80%</span>
+                </div>
+            </section>
+            
+            <!-- Devices -->
+            <section class="rgb-devices">
+                <h2>Devices</h2>
+                <div class="device-list">
+                    <div class="device-item">
+                        <span class="device-icon">⌨️</span>
+                        <span class="device-name">Keyboard</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="device-item">
+                        <span class="device-icon">🖱️</span>
+                        <span class="device-name">Mouse</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="device-item">
+                        <span class="device-icon">🖥️</span>
+                        <span class="device-name">GPU</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="device-item">
+                        <span class="device-icon">🔊</span>
+                        <span class="device-name">Case Fans</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Sync with Games -->
+            <section class="game-sync">
+                <h2>Game Sync</h2>
+                <div class="sync-list">
+                    <div class="sync-item">
+                        <span class="sync-name">Steam</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="sync-item">
+                        <span class="sync-name">MangoHud</span>
+                        <label class="toggle">
+                            <input type="checkbox" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+</body>
+</html>
+HTMLEOF
+    
+    log_design "RGB controller created"
+}
+
+# ============================================================================
+# Widget System
+# ============================================================================
+setup_widget_system() {
+    log_step "Setting up widget system..."
+    
+    sudo mkdir -p "${MOON_WIDGETS}"
+    sudo mkdir -p "${MOON_WIDGETS}/clock"
+    sudo mkdir -p "${MOON_WIDGETS}/weather"
+    sudo mkdir -p "${MOON_WIDGETS}/system"
+    sudo mkdir -p "${MOON_WIDGETS}/gaming"
+    
+    # Clock Widget
+    sudo cat > "${MOON_WIDGETS}/clock/widget.html" << 'HTMLEOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        .clock-widget {
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+        }
+        .time {
+            font-size: 48px;
+            font-weight: 700;
+            color: #00ff88;
+            text-shadow: 0 0 10px #00ff88;
+        }
+        .date {
+            font-size: 14px;
+            color: #a0a0b0;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="clock-widget">
+        <div class="time" id="time">00:00:00</div>
+        <div class="date" id="date">Monday, January 15, 2024</div>
+    </div>
+    <script>
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('time').textContent = now.toLocaleTimeString('en-US', { hour12: false });
+            document.getElementById('date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+    </script>
+</body>
+</html>
+HTMLEOF
+    
+    # System Monitor Widget
+    sudo cat > "${MOON_WIDGETS}/system/widget.html" << 'HTMLEOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        .system-widget {
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 16px;
+            padding: 16px;
+            color: white;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .monitor-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .monitor-label {
+            color: #a0a0b0;
+        }
+        .monitor-value {
+            color: #00ff88;
+            font-weight: 500;
+        }
+        .bar {
+            height: 4px;
+            background: #1a1a25;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+        .bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88, #00ffff);
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="system-widget">
+        <div class="monitor-row">
+            <span class="monitor-label">CPU</span>
+            <span class="monitor-value" id="cpu">45%</span>
+        </div>
+        <div class="bar"><div class="bar-fill" id="cpu-bar" style="width: 45%"></div></div>
+        
+        <div class="monitor-row">
+            <span class="monitor-label">GPU</span>
+            <span class="monitor-value" id="gpu">62%</span>
+        </div>
+        <div class="bar"><div class="bar-fill" id="gpu-bar" style="width: 62%"></div></div>
+        
+        <div class="monitor-row">
+            <span class="monitor-label">RAM</span>
+            <span class="monitor-value" id="ram">12.4 GB</span>
+        </div>
+        <div class="bar"><div class="bar-fill" id="ram-bar" style="width: 72%"></div></div>
+    </div>
+    <script>
+        setInterval(() => {
+            const cpu = Math.floor(Math.random() * 30 + 30);
+            const gpu = Math.floor(Math.random() * 40 + 50);
+            const ram = (Math.random() * 4 + 10).toFixed(1);
+            
+            document.getElementById('cpu').textContent = cpu + '%';
+            document.getElementById('gpu').textContent = gpu + '%';
+            document.getElementById('ram').textContent = ram + ' GB';
+            
+            document.getElementById('cpu-bar').style.width = cpu + '%';
+            document.getElementById('gpu-bar').style.width = gpu + '%';
+            document.getElementById('ram-bar').style.width = (ram / 16 * 100) + '%';
+        }, 1000);
+    </script>
+</body>
+</html>
+HTMLEOF
+    
+    # Gaming FPS Widget
+    sudo cat > "${MOON_WIDGETS}/gaming/widget.html" << 'HTMLEOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        .fps-widget {
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 16px;
+            padding: 16px;
+            text-align: center;
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+        }
+        .fps-value {
+            font-size: 64px;
+            font-weight: 700;
+            color: #00ff88;
+            text-shadow: 0 0 20px #00ff88;
+        }
+        .fps-label {
+            font-size: 14px;
+            color: #a0a0b0;
+        }
+        .fps-graph {
+            height: 40px;
+            background: #1a1a25;
+            border-radius: 8px;
+            margin-top: 12px;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div class="fps-widget">
+        <div class="fps-value" id="fps">144</div>
+        <div class="fps-label">FPS</div>
+        <div class="fps-graph"></div>
+    </div>
+    <script>
+        setInterval(() => {
+            const fps = Math.floor(Math.random() * 20 + 130);
+            const fpsEl = document.getElementById('fps');
+            fpsEl.textContent = fps;
+            
+            if (fps >= 144) fpsEl.style.color = '#00ff88';
+            else if (fps >= 100) fpsEl.style.color = '#ffaa00';
+            else fpsEl.style.color = '#ff4444';
+        }, 100);
+    </script>
+</body>
+</html>
+HTMLEOF
+    
+    log_design "Widget system created"
+}
+
+# ============================================================================
+# Dynamic Wallpapers
+# ============================================================================
+setup_dynamic_wallpapers() {
+    log_step "Setting up dynamic wallpapers..."
+    
+    sudo mkdir -p "${MOON_WALLPAPERS}/dynamic"
+    sudo mkdir -p "${MOON_WALLPAPERS}/static"
+    
+    # Dynamic wallpaper script
+    sudo cat > /usr/local/bin/moon-wallpaper << 'SCRIPT'
+#!/bin/bash
+# Moon OS Dynamic Wallpaper Controller
+
+set -euo pipefail
+
+ACTION="${1:-set}"
+WALLPAPER="${2:-auto}"
+
+case "$ACTION" in
+    set)
+        if [[ "$WALLPAPER" == "auto" ]]; then
+            # Auto wallpaper based on time of day
+            HOUR=$(date +%H)
+            if [[ $HOUR -ge 6 && $HOUR -lt 12 ]]; then
+                WALLPAPER="morning"
+            elif [[ $HOUR -ge 12 && $HOUR -lt 18 ]]; then
+                WALLPAPER="day"
+            elif [[ $HOUR -ge 18 && $HOUR -lt 21 ]]; then
+                WALLPAPER="evening"
+            else
+                WALLPAPER="night"
+            fi
+        fi
+        
+        # Set wallpaper
+        gsettings set org.gnome.desktop.background picture-uri "file:///usr/share/moonos/wallpapers/${WALLPAPER}.png"
+        gsettings set org.gnome.desktop.background picture-uri-dark "file:///usr/share/moonos/wallpapers/${WALLPAPER}.png"
+        ;;
+    list)
+        echo "Available wallpapers:"
+        ls -1 /usr/share/moonos/wallpapers/
+        ;;
+    random)
+        WALLPAPER=$(ls /usr/share/moonos/wallpapers/ | shuf -n1)
+        gsettings set org.gnome.desktop.background picture-uri "file:///usr/share/moonos/wallpapers/${WALLPAPER}"
+        ;;
+    *)
+        echo "Usage: $0 {set|list|random} [wallpaper]"
+        ;;
+esac
+SCRIPT
+    sudo chmod +x /usr/local/bin/moon-wallpaper
+    
+    log_design "Dynamic wallpapers configured"
+}
+
+# ============================================================================
+# Main Desktop Setup
+# ============================================================================
+setup_all_desktop() {
+    echo "=========================================="
+    echo "  Moon OS Desktop Environment"
+    echo "  Version: $MOON_DESKTOP_VERSION"
+    echo "=========================================="
+    echo ""
+    
+    create_design_tokens
+    setup_theme_engine
+    setup_gaming_dashboard
+    setup_control_center
+    setup_software_center
+    setup_theme_engine_full
+    setup_system_managers
+    setup_rgb_controller
+    setup_widget_system
+    setup_dynamic_wallpapers
+    
+    echo ""
+    echo "=========================================="
+    echo "  Desktop Environment Setup Complete!"
+    echo "=========================================="
+    echo ""
+    log_info "All desktop components configured!"
+    log_info "Gaming Dashboard: /usr/share/moonapps/gaming-dashboard/"
+    log_info "Control Center: /usr/share/moonapps/control-center/"
+    log_info "Software Center: /usr/share/moonapps/software-center/"
+    log_info "Theme Engine: /usr/share/moonapps/theme-engine/"
+    log_info "RGB Controller: /usr/share/moonapps/rgb-controller/"
+    log_info "Widgets: /usr/share/moonos/widgets/"
+}
+
+# ============================================================================
+# Main
+# ============================================================================
+main() {
+    case "${1:-setup}" in
+        setup)
+            setup_all_desktop
+            ;;
+        help|*)
+            echo "Moon OS Desktop Environment v${MOON_DESKTOP_VERSION}"
+            echo ""
+            echo "Usage: $0 <command>"
+            echo ""
+            echo "Commands:"
+            echo "  setup    Setup desktop environment"
+            echo "  help     Show this help"
+            ;;
+    esac
+}
+
+main "$@"

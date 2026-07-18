@@ -1,0 +1,785 @@
+#!/bin/bash
+# MOONPERF - Moon OS Performance Optimization System
+# Automatically configures system for maximum gaming performance
+
+set -euo pipefail
+
+MOON_PERF_VERSION="1.0.0"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+log_opt() { echo -e "${CYAN}[OPT]${NC} $1"; }
+
+# ============================================================================
+# CPU Optimizations
+# ============================================================================
+optimize_cpu() {
+    log_step "Optimizing CPU..."
+    
+    # Set CPU governor to performance
+    for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+        if [[ -f "$cpu" ]]; then
+            echo "performance" | sudo tee "$cpu" > /dev/null
+            log_opt "CPU $(basename $(dirname $(dirname $cpu))): performance governor"
+        fi
+    done
+    
+    # Enable Turbo Boost
+    if [[ -f /sys/devices/system/cpu/intel_pstate/no_turbo ]]; then
+        echo 0 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo > /dev/null
+        log_opt "Intel Turbo Boost enabled"
+    fi
+    
+    # Enable AMD P-State
+    if [[ -d /sys/devices/system/cpu/amd_pstate ]]; then
+        echo "active" | sudo tee /sys/devices/system/cpu/amd_pstate/status > /dev/null
+        log_opt "AMD P-State enabled"
+    fi
+    
+    # Optimize CPU frequency
+    for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_min_freq; do
+        if [[ -f "$cpu" ]]; then
+            local max_freq=$(cat ${cpu%/*}/scaling_max_freq)
+            echo "$max_freq" | sudo tee "$cpu" > /dev/null
+        fi
+    done
+    
+    # Disable CPU idle states
+    for cpu in /sys/devices/system/cpu/cpu*/cpuidle/state*/disable; do
+        if [[ -f "$cpu" ]]; then
+            echo 1 | sudo tee "$cpu" > /dev/null
+        fi
+    done
+    
+    log_info "CPU optimization complete"
+}
+
+# ============================================================================
+# Memory Optimizations
+# ============================================================================
+optimize_memory() {
+    log_step "Optimizing memory..."
+    
+    # Configure swappiness
+    echo 10 | sudo tee /proc/sys/vm/swappiness > /dev/null
+    log_opt "Swappiness: 10"
+    
+    # Configure dirty ratios
+    echo 10 | sudo tee /proc/sys/vm/dirty_ratio > /dev/null
+    echo 5 | sudo tee /proc/sys/vm/dirty_background_ratio > /dev/null
+    log_opt "Dirty ratio: 10%, Background: 5%"
+    
+    # Configure page cache
+    echo 50 | sudo tee /proc/sys/vm/vfs_cache_pressure > /dev/null
+    log_opt "VFS cache pressure: 50"
+    
+    # Configure minimum free memory
+    echo 65536 | sudo tee /proc/sys/vm/min_free_kbytes > / zone_reclaim_mode
+    echo 0 | sudo tee /proc/sys/vm/zone_reclaim_mode > /dev/null
+    log_opt "Zone reclaim mode: disabled"
+    
+    # Enable KSM (Kernel Same-page Merging)
+    echo 1 | sudo tee /proc/sys/kernel/ksm/run > /dev/null
+    log_opt "KSM enabled"
+    
+    # Configure transparent hugepages
+    echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/enabled > /dev/null
+    echo madvise | sudo tee /sys/kernel/mm/transparent_hugepage/defrag > /dev/null
+    log_opt "Transparent hugepages: madvise"
+    
+    # Configure ZRAM
+    if [[ -b /dev/zram0 ]]; then
+        echo lz4 | sudo tee /sys/block/zram0/comp_algorithm > /dev/null
+        echo 8G | sudo tee /sys/block/zram0/disksize > /dev/null
+        sudo mkswap /dev/zram0
+        sudo swapon -p 100 /dev/zram0
+        log_opt "ZRAM enabled with lz4 compression"
+    fi
+    
+    # Configure hugetlb
+    echo always | sudo tee /sys/kernel/mm/transparent_hugepage/hugetlb/enabled > /dev/null 2>/dev/null || true
+    
+    log_info "Memory optimization complete"
+}
+
+# ============================================================================
+# I/O Optimizations
+# ============================================================================
+optimize_io() {
+    log_step "Optimizing I/O..."
+    
+    # Detect storage type
+    for disk in /sys/block/sd* /sys/block/nvme*; do
+        if [[ -d "$disk" ]]; then
+            local disk_name=$(basename "$disk")
+            local rotational=$(cat "$disk/queue/rotational" 2>/dev/null || echo "1")
+            local scheduler="mq-deadline"
+            
+            if [[ "$rotational" == "0" ]]; then
+                # SSD/NVMe - use none or mq-deadline
+                if [[ "$disk_name" == nvme* ]]; then
+                    scheduler="none"
+                else
+                    scheduler="none"
+                fi
+                log_opt "$disk_name (SSD/NVMe): scheduler=$scheduler"
+            else
+                # HDD - use mq-deadline
+                scheduler="mq-deadline"
+                log_opt "$disk_name (HDD): scheduler=$scheduler"
+            fi
+            
+            echo "$scheduler" | sudo tee "$disk/queue/scheduler" > /dev/null
+            
+            # Optimize queue settings
+            echo 256 | sudo tee "$disk/queue/read_ahead_kb" > /dev/null
+            echo 0 | sudo tee "$disk/queue/rq_affinity" > /dev/null
+            echo 2 | sudo tee "$disk/queue/nomerges" > /dev/null
+            echo 128 | sudo tee "$disk/queue/nr_requests" > /dev/null
+        fi
+    done
+    
+    # Configure IO scheduler for all block devices
+    for device in /sys/block/*/queue/scheduler; do
+        if [[ -f "$device" ]]; then
+            local current=$(cat "$device" | grep -o '\[.*\]' | tr -d '[]')
+            if [[ "$current" != "none" ]]; then
+                echo "none" | sudo tee "$device" > /dev/null 2>/dev/null || true
+            fi
+        fi
+    done
+    
+    log_info "I/O optimization complete"
+}
+
+# ============================================================================
+# Network Optimizations
+# ============================================================================
+optimize_network() {
+    log_step "Optimizing network..."
+    
+    # TCP optimizations
+    echo 16777216 | sudo tee /proc/sys/net/core/rmem_max > /dev/null
+    echo 16777216 | sudo tee /proc/sys/net/core/wmem_max > /dev/null
+    echo "4096 87380 16777216" | sudo tee /proc/sys/net/ipv4/tcp_rmem > /dev/null
+    echo "4096 65536 16777216" | sudo tee /proc/sys/net/ipv4/tcp_wmem > /dev/null
+    echo 5000 | sudo tee /proc/sys/net/core/netdev_max_backlog > /dev/null
+    echo 1 | sudo tee /proc/sys/net/ipv4/tcp_window_scaling > /dev/null
+    echo 1 | sudo tee /proc/sys/net/ipv4/tcp_timestamps > /dev/null
+    echo 1 | sudo tee /proc/sys/net/ipv4/tcp_sack > /dev/null
+    echo 0 | sudo tee /proc/sys/net/ipv4/tcp_no_metrics_save > /dev/null
+    echo 1 | sudo tee /proc/sys/net/ipv4/tcp_syncookies > /dev/null
+    echo 4096 | sudo tee /proc/sys/net/ipv4/tcp_max_syn_backlog > /dev/null
+    echo bbr | sudo tee /proc/sys/net/ipv4/tcp_congestion_control > /dev/null
+    
+    # Enable BBR
+    sudo modprobe tcp_bbr 2>/dev/null || true
+    
+    # Network buffer optimizations
+    echo 256 | sudo tee /proc/sys/net/core/dev_weight > /dev/null
+    echo 128 | sudo tee /proc/sys/net/core/netdev_budget > /dev/null
+    echo 600 | sudo tee /proc/sys/net/core/netdev_budget_usecs > /dev/null
+    
+    log_opt "TCP optimizations applied"
+    log_opt "BBR congestion control enabled"
+    
+    log_info "Network optimization complete"
+}
+
+# ============================================================================
+# GPU Optimizations
+# ============================================================================
+optimize_gpu() {
+    log_step "Optimizing GPU..."
+    
+    # Detect GPU vendor
+    local gpu_vendor=$(lspci | grep -i "vga\|3d\|display" | head -1 | awk '{print $NF}')
+    
+    case "$gpu_vendor" in
+        *NVIDIA*)
+            optimize_nvidia
+            ;;
+        *AMD*|*ATI*|*Radeon*)
+            optimize_amd
+            ;;
+        *Intel*)
+            optimize_intel
+            ;;
+    esac
+}
+
+# NVIDIA GPU optimizations
+optimize_nvidia() {
+    log_opt "Optimizing NVIDIA GPU..."
+    
+    # Enable persistence mode
+    sudo nvidia-smi -pm 1 2>/dev/null || true
+    
+    # Set power limit
+    sudo nvidia-smi -pl 300 2>/dev/null || true
+    
+    # Enable coolbits
+    sudo nvidia-xconfig --cool-bits=28 2>/dev/null || true
+    
+    # Set GPU clock
+    sudo nvidia-smi -ac 5001,1800 2>/dev/null || true
+    
+    # Enable G-Sync
+    sudo nvidia-settings --assign CurrentMetaMode="nvidia-auto-select +0+0 {ForceFullCompositionPipeline=On}" 2>/dev/null || true
+    
+    log_opt "NVIDIA GPU optimized"
+}
+
+# AMD GPU optimizations
+optimize_amd_gpu() {
+    log_opt "Optimizing AMD GPU..."
+    
+    # Enable AMDGPU power features
+    echo "manual" | sudo tee /sys/class/drm/card0/device/power_dpm_force_performance_level > /dev/null 2>/dev/null || true
+    
+    # Set performance level
+    echo "performance" | sudo tee /sys/class/drm/card0/device/power_dpm_force_performance_level > /dev/null 2>/dev/null || true
+    
+    # Enable AMDGPU driver features
+    sudo modprobe amdgpu ppfeaturemask=0xffffffff 2>/dev/null || true
+    
+    # Set GPU clock
+    echo "s 1 1800" | sudo tee /sys/class/drm/card0/device/pp_od_clk_voltage > /dev/null 2>/dev/null || true
+    echo "c" | sudo tee /sys/class/drm/card0/device/pp_od_clk_voltage > /dev/null 2>/dev/null || true
+    
+    log_opt "AMD GPU optimized"
+}
+
+# Intel GPU optimizations
+optimize_intel_gpu() {
+    log_opt "Optimizing Intel GPU..."
+    
+    # Set Intel GPU to performance mode
+    echo "performance" | sudo tee /sys/class/drm/card0/device/power_dpm_force_performance_level > /dev/null 2>/dev/null || true
+    
+    # Enable Intel GPU features
+    sudo modprobe i915 enable_guc=3 2>/dev/null || true
+    
+    log_opt "Intel GPU optimized"
+}
+
+# ============================================================================
+# Audio Optimizations
+# ============================================================================
+optimize_audio() {
+    log_step "Optimizing audio..."
+    
+    # Configure PipeWire for gaming
+    mkdir -p ~/.config/pipewire/pipewire.conf.d
+    
+    cat > ~/.config/pipewire/pipewire.conf.d/99-gaming.conf << 'EOF'
+# Moon OS Gaming Audio Configuration
+# Optimized for low latency
+
+context.properties = {
+    default.clock.rate = 48000
+    default.clock.quantum = 64
+    default.clock.min-quantum = 32
+    default.clock.max-quantum = 2048
+}
+
+context.modules = [
+    { name = libpipewire-module-rt
+      args = {
+          nice.level = -11
+          rt.prio = 88
+          rt.time.soft = -1
+          rt.time.hard = -1
+      }
+      flags = [ ifexists nofail ]
+    }
+]
+EOF
+    
+    # Configure WirePlumber
+    mkdir -p ~/.config/wireplumber/main.lua.d
+    
+    cat > ~/.config/wireplumber/main.lua.d/51-gaming-config.lua << 'EOF'
+-- Moon OS Gaming Audio Configuration
+
+rule = {
+  matches = {
+    {
+      { "media.class", "equals", "Audio/Sink" },
+    },
+  },
+  apply_properties = {
+    ["audio.format"] = "S32LE",
+    ["audio.rate"] = 48000,
+    ["audio.channels"] = 2,
+    ["api.alsa.period-size"] = 256,
+    ["api.alsa.period-num"] = 2,
+    ["api.alsa.headroom"] = 1024,
+  },
+}
+
+table.insert(alsa_monitor.rules, rule)
+EOF
+    
+    # Set audio limits
+    sudo mkdir -p /etc/security/limits.d
+    cat > /tmp/99-audio.conf << 'EOF'
+@audio - rtprio 95
+@audio - memlock unlimited
+@audio - nice -10
+EOF
+    sudo mv /tmp/99-audio.conf /etc/security/limits.d/
+    
+    # Restart PipeWire
+    systemctl --user restart pipewire 2>/dev/null || true
+    systemctl --user restart pipewire-pulse 2>/dev/null || true
+    systemctl --user restart wireplumber 2>/dev/null || true
+    
+    log_opt "PipeWire configured for gaming"
+    log_opt "Low latency audio enabled"
+    
+    log_info "Audio optimization complete"
+}
+
+# ============================================================================
+# Display Optimizations
+# ============================================================================
+optimize_display() {
+    log_step "Optimizing display..."
+    
+    # Configure environment variables
+    sudo mkdir -p /etc/environment.d
+    
+    cat > /tmp/10-display.conf << 'EOF'
+# Moon OS Display Optimizations
+MOZ_ENABLE_WAYLAND=1
+GDK_BACKEND=wayland,x11
+QT_QPA_PLATFORM=wayland;xcb
+SDL_VIDEODRIVER=wayland
+CLUTTER_BACKEND=wayland
+XDG_SESSION_TYPE=wayland
+WLR_NO_HARDWARE_CURSORS=1
+GBM_BACKEND=nvidia-drm
+__GLX_VENDOR_LIBRARY_NAME=nvidia
+EOF
+    sudo mv /tmp/10-display.conf /etc/environment.d/10-display.conf
+    
+    # Configure X11 optimizations
+    sudo mkdir -p /etc/X11/xorg.conf.d
+    cat > /tmp/10-x11.conf << 'EOF'
+Section "Device"
+    Identifier "Default Device"
+    Option "AccelMethod" "glamor"
+    Option "DRI" "3"
+    Option "TearFree" "true"
+    Option "TripleBuffer" "true"
+    Option "SwapbuffersWait" "false"
+    Option "AccelProfileScaling" "true"
+EndSection
+
+Section "Screen"
+    Identifier "Default Screen"
+    Option "AllowIndirectGLXProtocol" "off"
+    Option "TripleBuffer" "True"
+EndSection
+EOF
+    sudo mv /tmp/10-x11.conf /etc/X11/xorg.conf.d/10-x11.conf
+    
+    log_opt "Wayland optimizations enabled"
+    log_opt "X11 optimizations enabled"
+    
+    log_info "Display optimization complete"
+}
+
+# ============================================================================
+# Power Management Optimizations
+# ============================================================================
+optimize_power() {
+    log_step "Optimizing power management..."
+    
+    # Detect if laptop
+    local chassis_type=$(cat /sys/class/dmi/id/chassis_type 2>/dev/null || echo "3")
+    
+    if [[ "$chassis_type" =~ ^(8|9|10|11|12|13|14|15)$ ]]; then
+        # Laptop
+        configure_laptop_power
+    else
+        # Desktop
+        configure_desktop_power
+    fi
+    
+    log_info "Power management optimization complete"
+}
+
+# Configure laptop power management
+configure_laptop_power() {
+    log_opt "Configuring laptop power management..."
+    
+    # Install power management tools
+    sudo pacman -S --needed --noconfirm tlp powertop brightnessctl 2>/dev/null || true
+    
+    # Enable TLP
+    sudo systemctl enable tlp 2>/dev/null || true
+    
+    # Create TLP configuration
+    sudo cat > /etc/tlp.conf << 'EOF'
+# Moon OS TLP Configuration
+# Optimized for gaming laptops
+
+CPU_SCALING_GOVERNOR_ON_AC=performance
+CPU_SCALING_GOVERNOR_ON_BAT=powersave
+
+CPU_ENERGY_PERF_POLICY_ON_AC=performance
+CPU_ENERGY_PERF_POLICY_ON_BAT=balance_power
+
+CPU_BOOST_ON_AC=1
+CPU_BOOST_ON_BAT=0
+
+SCHED_POWERSAVE_ON_AC=0
+SCHED_POWERSAVE_ON_BAT=1
+
+DISK_APM_LEVEL_ON_AC="254"
+DISK_APM_LEVEL_ON_BAT="128"
+
+SOUND_POWER_SAVE_ON_AC=0
+SOUND_POWER_SAVE_ON_BAT=1
+
+WIFI_PWR_ON_AC=off
+WIFI_PWR_ON_BAT=on
+
+RUNTIME_PM_ON_AC=auto
+RUNTIME_PM_ON_BAT=auto
+EOF
+    
+    log_opt "TLP configured for gaming"
+}
+
+# Configure desktop power management
+configure_desktop_power() {
+    log_opt "Configuring desktop power management..."
+    
+    # Install power management tools
+    sudo pacman -S --needed --noconfirm cpupower 2>/dev/null || true
+    
+    # Set performance mode
+    sudo cpupower frequency-set -g performance 2>/dev/null || true
+    
+    log_opt "Desktop power: performance mode"
+}
+
+# ============================================================================
+# Gaming Optimizations
+# ============================================================================
+optimize_gaming() {
+    log_step "Optimizing gaming..."
+    
+    # Create GameMode configuration
+    mkdir -p ~/.config
+    cat > ~/.config/gamemode.ini << 'EOF'
+[general]
+enabled=1
+gpu_device=0
+affinity=0-15
+soft_idle=5000
+
+[cpu]
+park_cores=0
+pin_cores=1
+
+[gpu]
+apply_gpu_optimisations=1
+gpu_core_clock=0
+gpu_mem_clock=0
+gpu_power_state=0
+
+[ioprio]
+io_class=2
+
+[scheduler]
+sched_policy=0
+sched_priority=4
+
+[nice]
+nice_value=0
+
+[platform]
+platform_type=0
+EOF
+    
+    # Create MangoHud configuration
+    mkdir -p ~/.config/MangoHud
+    cat > ~/.config/MangoHud/MangoHud.conf << 'EOF'
+# Moon OS MangoHud Configuration
+
+legacy_layout=0
+no_display
+toggle_hud=Shift_R+F12
+
+# Performance overlay
+fps
+fps_limit=0,144,165,240,360
+frame_timing
+frametime
+gpu_stats
+gpu_temp
+gpu_power
+gpu_core_clock
+gpu_mem_clock
+gpu_voltage
+gpu_load_change
+gpu_load_value=50,90
+
+# CPU
+cpu_stats
+cpu_temp
+cpu_power
+cpu_mhz
+cpu_load_change
+cpu_load_value=50,90
+
+# Memory
+ram
+vram
+swap
+
+# Network
+network
+
+# IO
+disk_stats
+disk_io
+
+# Battery (for laptops)
+battery
+
+# Appearance
+font_size=24
+position=top-left
+round_corners=10.0
+background_alpha=0.4
+background_color=000000
+text_color=FFFFFF
+gpu_color=2C8AFF
+cpu_color=2EFF2E
+vram_color=FFB3DE
+ram_color=FFBF00
+engine_color=BD93F9
+io_color=40A02B
+frametime_color=FCE200
+background_color=020202
+EOF
+    
+    # Create Gamescope configuration
+    mkdir -p ~/.config/gamescope
+    cat > ~/.config/gamescope/gamescope.env << 'EOF'
+GAMESCOPE_WIDTH=1920
+GAMESCOPE_HEIGHT=1080
+GAMESCOPE_REFRESH_RATE=144
+GAMESCOPE_FPS_LIMIT=144
+GAMESCOPE_HDR_ENABLED=1
+GAMESCOPE_VRR_ENABLED=1
+EOF
+    
+    # Configure controller support
+    sudo pacman -S --needed --noconfirm steam-controller-udev-rules 2>/dev/null || true
+    
+    log_opt "GameMode configured"
+    log_opt "MangoHud configured"
+    log_opt "Gamescope configured"
+    log_opt "Controller support enabled"
+    
+    log_info "Gaming optimization complete"
+}
+
+# ============================================================================
+# System Services Optimizations
+# ============================================================================
+optimize_services() {
+    log_step "Optimizing system services..."
+    
+    # Disable unnecessary services
+    local disable_services=(
+        "cups"
+        "bluetooth"
+        "ModemManager"
+        "avahi-daemon"
+        "accounts-daemon"
+        "colord"
+        "rtkit-daemon"
+        "firewalld"
+    )
+    
+    for service in "${disable_services[@]}"; do
+        if systemctl is-enabled "$service" 2>/dev/null; then
+            sudo systemctl disable "$service" 2>/dev/null || true
+            log_opt "Disabled: $service"
+        fi
+    done
+    
+    # Enable gaming services
+    local enable_services=(
+        "NetworkManager"
+        "pipewire"
+        "pipewire-pulse"
+        "wireplumber"
+        "gamemoded"
+    )
+    
+    for service in "${enable_services[@]}"; do
+        if systemctl list-unit-files | grep -q "^${service}"; then
+            sudo systemctl enable "$service" 2>/dev/null || true
+            log_opt "Enabled: $service"
+        fi
+    done
+    
+    log_info "Service optimization complete"
+}
+
+# ============================================================================
+# Security Optimizations
+# ============================================================================
+optimize_security() {
+    log_step "Optimizing security..."
+    
+    # Configure security settings
+    sudo cat > /etc/sysctl.d/99-security.conf << 'EOF'
+# Moon OS Security Optimizations
+
+# Network security
+net.ipv4.conf.all.rp_filter=1
+net.ipv4.conf.default.rp_filter=1
+net.ipv4.icmp_echo_ignore_broadcasts=1
+net.ipv4.conf.all.accept_redirects=0
+net.ipv4.conf.default.accept_redirects=0
+net.ipv4.conf.all.secure_redirects=0
+net.ipv4.conf.default.secure_redirects=0
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+net.ipv4.conf.all.accept_source_route=0
+net.ipv4.conf.default.accept_source_route=0
+net.ipv4.tcp_syncookies=1
+net.ipv4.tcp_synack_retries=2
+net.ipv4.tcp_syn_retries=5
+
+# IPv6
+net.ipv6.conf.all.accept_redirects=0
+net.ipv6.conf.default.accept_redirects=0
+net.ipv6.conf.all.accept_source_route=0
+net.ipv6.conf.default.accept_source_route=0
+
+# Kernel security
+kernel.kptr_restrict=2
+kernel.yama.ptrace_scope=1
+kernel.dmesg_restrict=1
+kernel.perf_event_paranoid=3
+kernel.unprivileged_bpf_disabled=1
+net.core.bpf_jit_harden=2
+kernel.unprivileged_userns_clone=1
+kernel.randomize_va_space=2
+fs.suid_dumpable=0
+EOF
+    
+    # Configure firewall
+    sudo pacman -S --needed --noconfirm firewalld 2>/dev/null || true
+    sudo systemctl enable firewalld 2>/dev/null || true
+    
+    log_opt "Security hardening applied"
+    log_opt "Firewall enabled"
+    
+    log_info "Security optimization complete"
+}
+
+# ============================================================================
+# Generate Performance Report
+# ============================================================================
+generate_report() {
+    log_step "Generating performance report..."
+    
+    local report="/tmp/moon-performance-report.txt"
+    
+    cat > "$report" << EOF
+Moon OS Performance Report
+==========================
+Generated: $(date)
+
+CPU Information:
+$(lscpu | grep -E "^(Architecture|CPU\(s\)|Vendor|Model|Thread|Core|Socket|MHz|Cache)")
+
+Memory Information:
+$(free -h)
+
+Storage Information:
+$(lsblk -d -o NAME,SIZE,TYPE,ROTA)
+
+GPU Information:
+$(lspci | grep -E "VGA|3D|Display")
+
+Network Information:
+$(ip link show | grep -E "^[0-9]+")
+
+Audio Information:
+$(aplay -l 2>/dev/null || echo "No audio devices")
+
+Display Information:
+$(xrandr 2>/dev/null | head -20 || echo "No display detected")
+
+Power Information:
+$(cpupower frequency-info 2>/dev/null || echo "No CPU power info")
+
+Gaming Controllers:
+$(ls /dev/input/js* 2>/dev/null || echo "No controllers detected")
+EOF
+    
+    log_info "Performance report saved to: $report"
+}
+
+# ============================================================================
+# Main Function
+# ============================================================================
+main() {
+    echo "=========================================="
+    echo "  Moon OS Performance Optimization"
+    echo "  Version: $MOON_PERF_VERSION"
+    echo "=========================================="
+    echo ""
+    
+    optimize_cpu
+    optimize_memory
+    optimize_io
+    optimize_network
+    optimize_gpu
+    optimize_audio
+    optimize_display
+    optimize_power
+    optimize_gaming
+    optimize_services
+    optimize_security
+    
+    generate_report
+    
+    echo ""
+    echo "=========================================="
+    echo "  Optimization Complete!"
+    echo "=========================================="
+    echo ""
+    log_info "All performance optimizations applied!"
+    log_info "A performance report has been saved to /tmp/moon-performance-report.txt"
+    log_info "Please reboot your system for all changes to take effect."
+    echo ""
+    echo "To apply optimizations manually, run:"
+    echo "  sudo /opt/moonperf/optimize.sh"
+    echo ""
+}
+
+# Run main function
+main "$@"

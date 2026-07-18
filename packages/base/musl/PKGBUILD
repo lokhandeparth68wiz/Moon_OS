@@ -1,0 +1,51 @@
+# MoonOS Package: musl
+# The C standard library used by MoonOS
+
+pkg_name="musl"
+pkg_version="1.2.4"
+pkg_release="1"
+pkg_description="The musl C library - a lightweight, fast, and simple standard C library"
+pkg_url="https://musl.libc.org/"
+pkg_license="MIT"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=()
+pkg_build_depends=()
+
+pkg_source=(
+    "https://musl.libc.org/releases/musl-1.2.4.tar.gz"
+)
+
+pkg_sha256=(
+    "7a35eae33d5372a7c0da1188de798726f68825513571db7e3571f7e5e62bea01"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --enable-shared \
+        --disable-static \
+        --enable-warnings \
+        --enable-debug
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Create compatibility symlink
+    ln -sf ld-musl-x86_64.so.1 "${PKG_INSTALL_DIR}/lib/ld-linux-x86-64.so.2"
+}
+
+pkg_prelude() {
+    # musl has no special requirements
+    true
+}

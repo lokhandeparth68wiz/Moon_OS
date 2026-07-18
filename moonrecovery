@@ -1,0 +1,640 @@
+#!/bin/bash
+# MOONRECOVERY - Moon OS Recovery System
+# Read-only recovery partition with snapshot rollback
+
+set -euo pipefail
+
+MOON_RECOVERY_VERSION="1.0.0"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+
+# ============================================================================
+# Recovery Partition Setup
+# ============================================================================
+setup_recovery_partition() {
+    log_step "Setting up recovery partition..."
+    
+    # Create recovery configuration
+    sudo mkdir -p /etc/recovery
+    
+    sudo cat > /etc/recovery/recovery.conf << 'EOF'
+# Moon OS Recovery Configuration
+
+# Enable read-only recovery partition
+READ_ONLY_RECOVERY=true
+
+# Recovery partition device
+RECOVERY_DEVICE=/dev/mapper/moonos-recovery
+
+# Recovery mount point
+RECOVERY_MOUNT=/recovery
+
+# Enable snapshot rollback
+ENABLE_SNAPSHOT_ROLLBACK=true
+
+# Enable automatic backup
+ENABLE_AUTOMATIC_BACKUP=true
+
+# Backup schedule (daily, weekly, monthly)
+BACKUP_SCHEDULE=daily
+
+# Keep number of backups
+BACKUP_KEEP=7
+
+# Enable recovery environment
+ENABLE_RECOVERY_ENV=true
+
+# Recovery kernel parameters
+RECOVERY_KERNEL_PARAMS="root=/dev/mapper/moonos-recovery ro"
+EOF
+    
+    # Create recovery mount script
+    sudo cat > /usr/local/bin/mount-recovery << 'SCRIPT'
+#!/bin/bash
+# Moon OS Recovery Mount Script
+
+set -euo pipefail
+
+RECOVERY_DEVICE="/dev/mapper/moonos-recovery"
+RECOVERY_MOUNT="/recovery"
+
+# Check if recovery partition exists
+if [[ ! -b "$RECOVERY_DEVICE" ]]; then
+    echo "Error: Recovery partition not found"
+    exit 1
+fi
+
+# Create mount point
+mkdir -p "$RECOVERY_MOUNT"
+
+# Mount read-only
+mount -o ro "$RECOVERY_DEVICE" "$RECOVERY_MOUNT"
+
+echo "Recovery partition mounted at $RECOVERY_MOUNT"
+SCRIPT
+    sudo chmod +x /usr/local/bin/mount-recovery
+    
+    # Create recovery unmount script
+    sudo cat > /usr/local/bin/unmount-recovery << 'SCRIPT'
+#!/bin/bash
+# Moon OS Recovery Unmount Script
+
+set -euo pipefail
+
+RECOVERY_MOUNT="/recovery"
+
+# Unmount recovery partition
+umount "$RECOVERY_MOUNT" 2>/dev/null || true
+
+echo "Recovery partition unmounted"
+SCRIPT
+    sudo chmod +x /usr/local/bin/unmount-recovery
+    
+    log_info "Recovery partition configured"
+}
+
+# ============================================================================
+# Read-Only Recovery Environment
+# ============================================================================
+setup_readonly_recovery() {
+    log_step "Setting up read-only recovery environment..."
+    
+    # Create read-only recovery script
+    sudo cat > /usr/local/bin/setup-readonly-recovery << 'SCRIPT'
+#!/bin/bash
+# Moon OS Read-Only Recovery Setup
+
+set -euo pipefail
+
+RECOVERY_MOUNT="/recovery"
+
+# Mount recovery partition
+mount -o ro /dev/mapper/moonos-recovery "$RECOVERY_MOUNT"
+
+# Create recovery environment
+mkdir -p "$RECOVERY_MOUNT"/{bin,sbin,lib,lib64,usr/{bin,sbin,lib,lib64},etc,var,proc,sys,dev,tmp,boot}
+
+# Copy minimal system
+cp -a /bin/* "$RECOVERY_MOUNT/bin/" 2>/dev/null || true
+cp -a /sbin/* "$RECOVERY_MOUNT/sbin/" 2>/dev/null || true
+cp -a /lib/* "$RECOVERY_MOUNT/lib/" 2>/dev/null || true
+cp -a /lib64/* "$RECOVERY_MOUNT/lib64/" 2>/dev/null || true
+cp -a /usr/bin/* "$RECOVERY_MOUNT/usr/bin/" 2>/dev/null || true
+cp -a /usr/sbin/* "$RECOVERY_MOUNT/usr/sbin/" 2>/dev/null || true
+cp -a /usr/lib/* "$RECOVERY_MOUNT/usr/lib/" 2>/dev/null || true
+
+# Create recovery init script
+cat > "$RECOVERY_MOUNT/init" << 'EOF'
+#!/bin/sh
+# Moon OS Recovery Init
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+# Mount essential filesystems
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mount -t tmpfs tmpfs /tmp
+
+# Display recovery menu
+echo "=========================================="
+echo "  Moon OS Recovery Environment"
+echo "=========================================="
+echo ""
+echo "  1) Boot normally"
+echo "  2) Boot from snapshot"
+echo "  3) Reset to factory defaults"
+echo "  4) Repair system"
+echo "  5) Open shell"
+echo ""
+echo "=========================================="
+echo ""
+
+read -p "Select option: " choice
+
+case "$choice" in
+    1)
+        echo "Booting normally..."
+        exec /sbin/init
+        ;;
+    2)
+        echo "Available snapshots:"
+        ls -d /recovery/snapshots/* 2>/dev/null || echo "No snapshots found"
+        read -p "Select snapshot: " snapshot
+        if [[ -d "/recovery/snapshots/$snapshot" ]]; then
+            echo "Rolling back to $snapshot..."
+            btrfs subvolume delete /
+            btrfs subvolume snapshot "/recovery/snapshots/$snapshot" /
+            echo "Rollback complete. Rebooting..."
+            reboot
+        fi
+        ;;
+    3)
+        echo "WARNING: This will reset to factory defaults!"
+        read -p "Are you sure? (y/N): " confirm
+        if [[ "$confirm" == "y" ]]; then
+            echo "Resetting to factory defaults..."
+            # Reset to factory snapshot
+            btrfs subvolume delete /
+            btrfs subvolume snapshot /recovery/snapshots/factory /
+            echo "Reset complete. Rebooting..."
+            reboot
+        fi
+        ;;
+    4)
+        echo "Repairing system..."
+        # Run filesystem repair
+        fsck -y /dev/mapper/moonos-root
+        echo "Repair complete"
+        ;;
+    5)
+        echo "Opening recovery shell..."
+        exec /bin/sh
+        ;;
+    *)
+        echo "Invalid option"
+        ;;
+esac
+EOF
+    chmod +x "$RECOVERY_MOUNT/init"
+    
+    # Make recovery partition read-only
+    umount "$RECOVERY_MOUNT"
+    mount -o ro /dev/mapper/moonos-recovery "$RECOVERY_MOUNT"
+    
+    log_info "Read-only recovery environment configured"
+}
+
+# ============================================================================
+# Snapshot Rollback System
+# ============================================================================
+setup_snapshot_rollback() {
+    log_step "Setting up snapshot rollback system..."
+    
+    # Create snapshot management script
+    sudo cat > /usr/local/bin/moon-snapshots << 'SCRIPT'
+#!/bin/bash
+# Moon OS Snapshot Management
+
+set -euo pipefail
+
+ACTION="${1:-list}"
+
+case "$ACTION" in
+    create)
+        SNAPSHOT_NAME="${2:-moon-$(date +%Y%m%d-%H%M%S)}"
+        echo "Creating snapshot: $SNAPSHOT_NAME"
+        sudo btrfs subvolume snapshot -r / "/$SNAPSHOT_NAME"
+        echo "Snapshot created: /$SNAPSHOT_NAME"
+        
+        # Copy to recovery partition
+        sudo cp -a "/$SNAPSHOT_NAME" /recovery/snapshots/ 2>/dev/null || true
+        ;;
+    list)
+        echo "Available snapshots:"
+        sudo btrfs subvolume list / | grep "moon-"
+        echo ""
+        echo "Recovery snapshots:"
+        ls -la /recovery/snapshots/ 2>/dev/null || echo "No recovery snapshots"
+        ;;
+    rollback)
+        if [[ -z "${2:-}" ]]; then
+            echo "Usage: $0 rollback <snapshot-name>"
+            exit 1
+        fi
+        echo "Rolling back to: $2"
+        
+        # Create safety snapshot first
+        sudo btrfs subvolume snapshot -r / "/moon-safety-$(date +%Y%m%d-%H%M%S)"
+        
+        # Perform rollback
+        sudo btrfs subvolume delete /
+        sudo btrfs subvolume snapshot "/$2" /
+        
+        echo "Rollback complete. Please reboot."
+        ;;
+    delete)
+        if [[ -z "${2:-}" ]]; then
+            echo "Usage: $0 delete <snapshot-name>"
+            exit 1
+        fi
+        echo "Deleting snapshot: $2"
+        sudo btrfs subvolume delete "/$2"
+        echo "Snapshot deleted"
+        ;;
+    repair)
+        echo "Running filesystem repair..."
+        sudo btrfs scrub start /
+        sudo btrfs device stats /
+        ;;
+    *)
+        echo "Usage: $0 {create|list|rollback|delete|repair} [snapshot-name]"
+        exit 1
+        ;;
+esac
+SCRIPT
+    sudo chmod +x /usr/local/bin/moon-snapshots
+    
+    # Create systemd timer for automatic snapshots
+    sudo cat > /etc/systemd/system/moon-snapshot.timer << 'EOF'
+[Unit]
+Description=Moon OS Automatic Snapshot
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    
+    sudo cat > /etc/systemd/system/moon-snapshot.service << 'EOF'
+[Unit]
+Description=Moon OS Snapshot Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/moon-snapshots create
+User=root
+EOF
+    
+    sudo systemctl enable moon-snapshot.timer
+    
+    log_info "Snapshot rollback system configured"
+}
+
+# ============================================================================
+# Automatic Backup System
+# ============================================================================
+setup_automatic_backup() {
+    log_step "Setting up automatic backup system..."
+    
+    # Create backup script
+    sudo cat > /usr/local/bin/moon-backup << 'SCRIPT'
+#!/bin/bash
+# Moon OS Automatic Backup
+
+set -euo pipefail
+
+BACKUP_DIR="/var/backups/moonos"
+BACKUP_DATE=$(date +%Y%m%d-%H%M%S)
+BACKUP_NAME="backup-${BACKUP_DATE}"
+
+# Create backup directory
+mkdir -p "$BACKUP_DIR"
+
+# Create backup
+echo "Creating backup: $BACKUP_NAME"
+sudo btrfs subvolume snapshot -r / "${BACKUP_DIR}/${BACKUP_NAME}"
+
+# Compress backup
+echo "Compressing backup..."
+sudo tar czf "${BACKUP_DIR}/${BACKUP_NAME}.tar.gz" -C "${BACKUP_DIR}" "${BACKUP_NAME}"
+
+# Remove uncompressed snapshot
+sudo btrfs subvolume delete "${BACKUP_DIR}/${BACKUP_NAME}"
+
+# Copy to recovery partition
+sudo cp "${BACKUP_DIR}/${BACKUP_NAME}.tar.gz" /recovery/backups/ 2>/dev/null || true
+
+# Keep only last 7 backups
+cd "$BACKUP_DIR"
+ls -t backup-*.tar.gz | tail -n +8 | xargs rm -f 2>/dev/null || true
+
+echo "Backup complete: ${BACKUP_DIR}/${BACKUP_NAME}.tar.gz"
+SCRIPT
+    sudo chmod +x /usr/local/bin/moon-backup
+    
+    # Create systemd timer for automatic backups
+    sudo cat > /etc/systemd/system/moon-backup.timer << 'EOF'
+[Unit]
+Description=Moon OS Automatic Backup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    
+    sudo cat > /etc/systemd/system/moon-backup.service << 'EOF'
+[Unit]
+Description=Moon OS Backup Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/moon-backup
+User=root
+EOF
+    
+    sudo systemctl enable moon-backup.timer
+    
+    log_info "Automatic backup system configured"
+}
+
+# ============================================================================
+# Recovery Menu (GRUB)
+# ============================================================================
+setup_recovery_menu() {
+    log_step "Setting up recovery menu..."
+    
+    # Create recovery GRUB entry
+    sudo cat > /etc/grub.d/40_moon_recovery << 'SCRIPT'
+#!/bin/sh
+# Moon OS Recovery Menu Entry
+
+exec tail -n +3 "$0"
+
+menuentry "Moon OS Recovery" {
+    set root='(hd0,gpt2)'
+    linux /recovery/vmlinuz root=/dev/mapper/moonos-recovery ro
+    initrd /recovery/initramfs.img
+}
+
+menuentry "Moon OS Recovery (Read-Only)" {
+    set root='(hd0,gpt2)'
+    linux /recovery/vmlinuz root=/dev/mapper/moonos-recovery ro
+    initrd /recovery/initramfs.img
+}
+
+menuentry "Moon OS Recovery Shell" {
+    set root='(hd0,gpt2)'
+    linux /recovery/vmlinuz root=/dev/mapper/moonos-recovery ro init=/bin/sh
+    initrd /recovery/initramfs.img
+}
+SCRIPT
+    sudo chmod +x /etc/grub.d/40_moon_recovery
+    
+    # Update GRUB
+    sudo grub-mkconfig -o /boot/grub/grub.cfg
+    
+    log_info "Recovery menu configured"
+}
+
+# ============================================================================
+# Factory Reset
+# ============================================================================
+setup_factory_reset() {
+    log_step "Setting up factory reset..."
+    
+    # Create factory reset script
+    sudo cat > /usr/local/bin/moon-factory-reset << 'SCRIPT'
+#!/bin/bash
+# Moon OS Factory Reset
+
+set -euo pipefail
+
+echo "=========================================="
+echo "  Moon OS Factory Reset"
+echo "=========================================="
+echo ""
+echo "WARNING: This will reset your system to factory defaults!"
+echo "All personal data will be lost!"
+echo ""
+read -p "Are you sure you want to continue? (y/N): " confirm
+
+if [[ "$confirm" != "y" ]]; then
+    echo "Factory reset cancelled."
+    exit 0
+fi
+
+echo ""
+echo "Performing factory reset..."
+
+# Unmount all filesystems
+umount -a 2>/dev/null || true
+
+# Mount root partition
+mount /dev/mapper/moonos-root /mnt
+
+# Delete all snapshots
+for snapshot in $(btrfs subvolume list /mnt | awk '{print $NF}' | grep "moon-"); do
+    echo "Deleting snapshot: $snapshot"
+    btrfs subvolume delete "/mnt/$snapshot" 2>/dev/null || true
+done
+
+# Delete all user data
+echo "Deleting user data..."
+rm -rf /mnt/home/*
+rm -rf /mnt/root/*
+rm -rf /mnt/var/lib/AccountsService 2>/dev/null || true
+
+# Restore factory snapshot
+echo "Restoring factory snapshot..."
+if [[ -d "/recovery/snapshots/factory" ]]; then
+    btrfs subvolume snapshot /recovery/snapshots/factory /mnt
+else
+    echo "Error: Factory snapshot not found"
+    exit 1
+fi
+
+# Unmount
+umount /mnt
+
+echo ""
+echo "Factory reset complete!"
+echo "Please reboot your system."
+SCRIPT
+    sudo chmod +x /usr/local/bin/moon-factory-reset
+    
+    log_info "Factory reset configured"
+}
+
+# ============================================================================
+# Recovery Environment
+# ============================================================================
+setup_recovery_environment() {
+    log_step "Setting up recovery environment..."
+    
+    # Create recovery environment script
+    sudo cat > /usr/local/bin/moon-recovery-env << 'SCRIPT'
+#!/bin/bash
+# Moon OS Recovery Environment
+
+set -euo pipefail
+
+echo "=========================================="
+echo "  Moon OS Recovery Environment"
+echo "=========================================="
+echo ""
+
+# Mount recovery partition
+mount -o ro /dev/mapper/moonos-recovery /recovery 2>/dev/null || true
+
+# Display recovery options
+echo "Recovery Options:"
+echo ""
+echo "  1) View system logs"
+echo "  2) Run filesystem check"
+echo "  3) Repair GRUB"
+echo "  4) Reset root password"
+echo "  5) View disk usage"
+echo "  6) Open recovery shell"
+echo "  7) Reboot"
+echo ""
+
+read -p "Select option: " choice
+
+case "$choice" in
+    1)
+        echo "System logs:"
+        journalctl -b -p err
+        ;;
+    2)
+        echo "Running filesystem check..."
+        fsck -y /dev/mapper/moonos-root
+        ;;
+    3)
+        echo "Repairing GRUB..."
+        mount /dev/mapper/moonos-root /mnt
+        arch-chroot /mnt grub-install /dev/sda
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+        umount /mnt
+        ;;
+    4)
+        echo "Resetting root password..."
+        mount /dev/mapper/moonos-root /mnt
+        arch-chroot /mnt passwd root
+        umount /mnt
+        ;;
+    5)
+        echo "Disk usage:"
+        df -h
+        ;;
+    6)
+        echo "Opening recovery shell..."
+        exec /bin/sh
+        ;;
+    7)
+        echo "Rebooting..."
+        reboot
+        ;;
+    *)
+        echo "Invalid option"
+        ;;
+esac
+SCRIPT
+    sudo chmod +x /usr/local/bin/moon-recovery-env
+    
+    log_info "Recovery environment configured"
+}
+
+# ============================================================================
+# Main Recovery Setup
+# ============================================================================
+setup_all_recovery() {
+    echo "=========================================="
+    echo "  Moon OS Recovery System"
+    echo "  Version: $MOON_RECOVERY_VERSION"
+    echo "=========================================="
+    echo ""
+    
+    setup_recovery_partition
+    setup_readonly_recovery
+    setup_snapshot_rollback
+    setup_automatic_backup
+    setup_recovery_menu
+    setup_factory_reset
+    setup_recovery_environment
+    
+    echo ""
+    echo "=========================================="
+    echo "  Recovery System Setup Complete!"
+    echo "=========================================="
+    echo ""
+    log_info "All recovery features configured!"
+    log_info "Recovery partition is read-only for safety"
+    log_info "Automatic snapshots and backups are enabled"
+}
+
+# ============================================================================
+# Main
+# ============================================================================
+main() {
+    case "${1:-setup}" in
+        setup)
+            setup_all_recovery
+            ;;
+        snapshot)
+            /usr/local/bin/moon-snapshots "${@:2}"
+            ;;
+        backup)
+            /usr/local/bin/moon-backup "${@:2}"
+            ;;
+        restore)
+            /usr/local/bin/moon-snapshots rollback "${2}"
+            ;;
+        factory-reset)
+            /usr/local/bin/moon-factory-reset
+            ;;
+        help|*)
+            echo "Moon OS Recovery System v${MOON_RECOVERY_VERSION}"
+            echo ""
+            echo "Usage: $0 <command>"
+            echo ""
+            echo "Commands:"
+            echo "  setup          Setup recovery system"
+            echo "  snapshot       Manage snapshots"
+            echo "  backup         Create backup"
+            echo "  restore        Restore from snapshot"
+            echo "  factory-reset  Reset to factory defaults"
+            echo "  help           Show this help"
+            ;;
+    esac
+}
+
+main "$@"

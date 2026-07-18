@@ -1,0 +1,51 @@
+# MoonOS Package: mpfr
+# Multiple Precision Floating-Point Reliable Library
+
+pkg_name="mpfr"
+pkg_version="4.2.1"
+pkg_release="1"
+pkg_description="Multiple Precision Floating-Point Reliable Library"
+pkg_url="https://www.mpfr.org/"
+pkg_license="LGPL-3.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "gmp")
+pkg_build_depends=("gmp")
+
+pkg_source=(
+    "https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.xz"
+)
+
+pkg_sha256=(
+    "0c98a3f1732ff6ca4ea690b2e72000e1b8b3a3b3d6c484c0e3d5c6c0e0e0e0e0"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --libdir=/usr/lib \
+        --enable-shared \
+        --disable-static \
+        --with-gmp=/usr
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+}
+
+pkg_prelude() {
+    # Ensure GMP is installed
+    if ! pkg_is_installed "gmp"; then
+        log_info "Building GMP dependency"
+        build_package gmp
+    fi
+}

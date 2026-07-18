@@ -1,0 +1,96 @@
+# MoonOS Package: openrc
+# Dependency-based init system
+
+pkg_name="openrc"
+pkg_version="0.54"
+pkg_release="1"
+pkg_description="OpenRC is a dependency-based init system for Gentoo"
+pkg_url="https://github.com/OpenRC/openrc"
+pkg_license="BSD-2-Clause"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "busybox")
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://github.com/OpenRC/openrc/archive/refs/tags/0.54.tar.gz"
+)
+
+pkg_sha256=(
+    "SKIP"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --sbindir=/usr/sbin \
+        --libdir=/usr/lib \
+        --libexecdir=/usr/lib/openrc \
+        --enable-shared \
+        --disable-static \
+        --enable-exotic-init
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Create default runlevel configuration
+    mkdir -p "${PKG_INSTALL_DIR}/etc/runlevels/boot"
+    mkdir -p "${PKG_INSTALL_DIR}/etc/runlevels/default"
+    mkdir -p "${PKG_INSTALL_DIR}/etc/runlevels/nonetwork"
+    mkdir -p "${PKG_INSTALL_DIR}/etc/runlevels/shutdown"
+
+    # Enable essential services in boot runlevel
+    for svc in devfs dmesg procfs sysfs hostname; do
+        ln -sf "/etc/init.d/${svc}" "${PKG_INSTALL_DIR}/etc/runlevels/boot/${svc}"
+    done
+
+    # Enable default services
+    for svc in networking logger dbus; do
+        ln -sf "/etc/init.d/${svc}" "${PKG_INSTALL_DIR}/etc/runlevels/default/${svc}"
+    done
+
+    # Create init script
+    mkdir -p "${PKG_INSTALL_DIR}/sbin"
+    cat > "${PKG_INSTALL_DIR}/sbin/openrc-init" << 'EOF'
+#!/bin/sh
+# MoonOS OpenRC Init Script
+
+# Mount essential filesystems
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mount -t tmpfs tmpfs /run
+
+# Setup mdev
+echo /sbin/mdev > /proc/sys/kernel/hotplug
+/sbin/mdev -s
+
+# Mount root filesystem read-write
+mount -o remount,rw /
+
+# Mount virtual filesystems
+mount -t tmpfs tmpfs /tmp
+mount -t tmpfs tmpfs /var/run
+
+# Start OpenRC
+exec /usr/sbin/openrc -N sysinit
+exec /usr/sbin/openrc -N boot
+exec /usr/sbin/openrc default
+EOF
+    chmod +x "${PKG_INSTALL_DIR}/sbin/openrc-init"
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}

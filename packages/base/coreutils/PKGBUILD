@@ -1,0 +1,59 @@
+# MoonOS Package: coreutils
+# Basic file, shell, and text manipulation utilities
+
+pkg_name="coreutils"
+pkg_version="9.4"
+pkg_release="1"
+pkg_description="Basic file, shell and text manipulation utilities from GNU"
+pkg_url="https://www.gnu.org/software/coreutils/"
+pkg_license="GPL-3.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl")
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://ftp.gnu.org/gnu/coreutils/coreutils-9.4.tar.xz"
+)
+
+pkg_sha256=(
+    "767ae7e9167c317f703891e9d47b5cc185d04e6f48b75e7db5055de74f01934c"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --enable-shared \
+        --disable-static \
+        --enable-no-install-program=runcon,chroot,dircolors,factor,od,sha1sum,sha224sum,sha256sum,sha384sum,sha512sum,seq,sum,truncate,vdir \
+        --disable-multicall
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Remove unnecessary binaries
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/chroot"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/runcon"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/dircolors"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/factor"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/od"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/seq"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/sum"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/truncate"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/vdir"
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}

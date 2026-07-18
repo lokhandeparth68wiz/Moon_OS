@@ -1,0 +1,110 @@
+# MoonOS Package: linux
+# The Linux kernel
+
+pkg_name="linux"
+pkg_version="6.7.2"
+pkg_release="1"
+pkg_description="The Linux kernel and modules"
+pkg_url="https://www.kernel.org/"
+pkg_license="GPL-2.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=()
+pkg_build_depends=("perl" "bc" "flex" "bison" "elfutils" "openssl-dev")
+
+pkg_source=(
+    "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.7.2.tar.xz"
+)
+
+pkg_sha256=(
+    "b54ec53e13c5976040153f220262b6d703f8f8e5f8e49e7c25f6c4e2f1d0c1c5"
+)
+
+pkg_configure() {
+    # Use MoonOS default kernel config
+    if [[ -f "${MOONOS_ROOT}/system/kernel/configs/moonos-${MKBS_CONFIG[target]}.config" ]]; then
+        cp "${MOONOS_ROOT}/system/kernel/configs/moonos-${MKBS_CONFIG[target]}.config" .config
+    else
+        make defconfig
+    fi
+
+    # Enable required options
+    scripts/config --enable CONFIG_MODULES
+    scripts/config --enable CONFIG_MODULE_UNLOAD
+    scripts/config --enable CONFIG_MODULE_FORCE_UNLOAD
+    scripts/config --enable CONFIG_BLK_DEV_INITRD
+    scripts/config --enable CONFIG_EXT4_FS
+    scripts/config --enable CONFIG_BTRFS_FS
+    scripts/config --enable CONFIG_XFS_FS
+    scripts/config --enable CONFIG_VFAT_FS
+    scripts/config --enable CONFIG_NTFS3_FS
+    scripts/config --enable CONFIG_FUSE_FS
+    scripts/config --enable CONFIG_OVERLAY_FS
+    scripts/config --enable CONFIG_TMPFS
+    scripts/config --enable CONFIG_TMPFS_POSIX_ACL
+    scripts/config --enable CONFIG_DEVTMPFS
+    scripts/config --enable CONFIG_DEVTMPFS_MOUNT
+    scripts/config --enable CONFIG_CGROUPS
+    scripts/config --enable CONFIG_NAMESPACES
+    scripts/config --enable CONFIG_NET_NS
+    scripts/config --enable CONFIG_PID_NS
+    scripts/config --enable CONFIG_IPC_NS
+    scripts/config --enable CONFIG_UTS_NS
+    scripts/config --enable CONFIG_USER_NS
+    scripts/config --enable CONFIG_CGROUP_CPUACCT
+    scripts/config --enable CONFIG_CGROUP_DEVICE
+    scripts/config --enable CONFIG_CGROUP_FREEZER
+    scripts/config --enable CONFIG_CGROUP_SCHED
+    scripts/config --enable CONFIG_CPUSETS
+    scripts/config --enable CONFIG_MEMCG
+    scripts/config --enable CONFIG_VETH
+    scripts/config --enable CONFIG_BRIDGE
+    scripts/config --enable CONFIG_BRIDGE_NETFILTER
+    scripts/config --enable CONFIG_NETFILTER_XTABLES
+    scripts/config --enable CONFIG_NF_CONNTRACK
+    scripts/config --enable CONFIG_NAT
+    scripts/config --enable CONFIG_VIRTIO
+    scripts/config --enable CONFIG_VIRTIO_PCI
+    scripts/config --enable CONFIG_VIRTIO_BLK
+    scripts/config --enable CONFIG_VIRTIO_NET
+    scripts/config --enable CONFIG_VIRTIO_CONSOLE
+    scripts/config --enable CONFIG_DRM
+    scripts/config --enable CONFIG_DRM_I915
+    scripts/config --enable CONFIG_DRM_AMDGPU
+    scripts/config --enable CONFIG_FB
+    scripts/config --enable CONFIG_FB_VESA
+    scripts/config --enable CONFIG_FRAMEBUFFER_CONSOLE
+
+    # Optimize for performance
+    scripts/config --disable CONFIG_DEBUG_INFO
+    scripts/config --disable CONFIG_DEBUG_KERNEL
+    scripts/config --disable CONFIG_KASAN
+    scripts/config --disable CONFIG_KCOV
+    scripts/config --disable CONFIG_KMEMLEAK
+
+    make olddefconfig
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+    make -j"$(nproc)" modules
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+    make -j"$(nproc)" modules_install MODLIB="${PKG_INSTALL_DIR}/lib/modules"
+
+    # Generate initramfs
+    if [[ -f "${PKG_INSTALL_DIR}/boot/vmlinuz" ]]; then
+        create_initramfs "${PKG_INSTALL_DIR}/boot/initramfs.img"
+    fi
+}
+
+pkg_prelude() {
+    # Verify kernel build dependencies
+    for cmd in perl bc flex bison; do
+        if ! command_exists "$cmd"; then
+            log_error "Missing kernel build dependency: $cmd"
+            return 1
+        fi
+    done
+}

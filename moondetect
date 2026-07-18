@@ -1,0 +1,1106 @@
+#!/bin/bash
+# MOONDETECT - Automatic Hardware Detection & Driver Installation
+# Detects hardware and installs optimal drivers automatically
+
+set -euo pipefail
+
+MOON_DETECT_VERSION="1.0.0"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+
+# Detect CPU
+detect_cpu() {
+    log_step "Detecting CPU..."
+    
+    local cpu_vendor=$(grep -m1 "vendor_id" /proc/cpuinfo | awk '{print $3}')
+    local cpu_model=$(grep -m1 "model name" /proc/cpuinfo | cut -d: -f2 | xargs)
+    local cpu_cores=$(nproc)
+    local cpu_freq=$(grep -m1 "cpu MHz" /proc/cpuinfo | awk '{print $4}')
+    
+    echo "CPU Information:"
+    echo "  Vendor: $cpu_vendor"
+    echo "  Model: $cpu_model"
+    echo "  Cores: $cpu_cores"
+    echo "  Frequency: ${cpu_freq} MHz"
+    
+    case "$cpu_vendor" in
+        GenuineIntel)
+            log_info "Intel CPU detected"
+            detect_intel_cpu
+            ;;
+        AuthenticAMD)
+            log_info "AMD CPU detected"
+            detect_amd_cpu
+            ;;
+        *)
+            log_warn "Unknown CPU vendor: $cpu_vendor"
+            ;;
+    esac
+}
+
+# Detect Intel CPU features
+detect_intel_cpu() {
+    log_info "Configuring Intel CPU optimizations..."
+    
+    # Enable Intel P-State
+    if [[ -d /sys/devices/system/cpu/intel_pstate ]]; then
+        log_info "Intel P-State driver available"
+        echo "powersave" | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor > /dev/null
+    fi
+    
+    # Enable Intel Turbo Boost
+    if [[ -f /sys/devices/system/cpu/intel_pstate/no_turbo ]]; then
+        echo 0 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo > /dev/null
+        log_info "Intel Turbo Boost enabled"
+    fi
+    
+    # Install Intel-specific packages
+    sudo pacman -S --needed --noconfirm intel-media-driver libva-intel-driver intel-gpu-tools 2>/dev/null || true
+}
+
+# Detect AMD CPU features
+detect_amd_cpu() {
+    log_info "Configuring AMD CPU optimizations..."
+    
+    # Enable AMD P-State
+    if [[ -d /sys/devices/system/cpu/amd_pstate ]]; then
+        log_info "AMD P-State driver available"
+        echo "active" | sudo tee /sys/devices/system/cpu/amd_pstate/status > /dev/null
+    fi
+    
+    # Install AMD-specific packages
+    sudo pacman -S --needed --noconfirm amdvlk amdgpu-pro-installer 2>/dev/null || true
+}
+
+# Detect GPU
+detect_gpu() {
+    log_step "Detecting GPU..."
+    
+    local gpus=$(lspci | grep -E "VGA|3D|Display")
+    
+    echo "GPU Information:"
+    echo "$gpus" | while read -r line; do
+        echo "  $line"
+    done
+    
+    # Detect NVIDIA
+    if echo "$gpus" | grep -qi "nvidia"; then
+        detect_nvidia_gpu
+    fi
+    
+    # Detect AMD
+    if echo "$gpus" | grep -qi "amd\|radeon"; then
+        detect_amd_gpu
+    fi
+    
+    # Detect Intel
+    if echo "$gpus" | grep -qi "intel"; then
+        detect_intel_gpu
+    fi
+}
+
+# Detect NVIDIA GPU
+detect_nvidia_gpu() {
+    log_step "NVIDIA GPU detected - installing drivers..."
+    
+    # Get NVIDIA GPU model
+    local nvidia_model=$(lspci | grep -i nvidia | head -1 | awk '{print $NF}')
+    log_info "NVIDIA GPU: $nvidia_model"
+    
+    # Check if NVIDIA driver is available
+    if ! nvidia-smi &>/dev/null; then
+        log_info "Installing NVIDIA drivers..."
+        
+        # Detect NVIDIA driver version needed
+        local nvidia_pci=$(lspci -n | grep -i nvidia | awk '{print $3}' | cut -d: -f1)
+        
+        # Install NVIDIA drivers
+        sudo pacman -S --needed --noconfirm \
+            nvidia-utils \
+            nvidia-settings \
+            lib32-nvidia-utils \
+            opencl-nvidia \
+            lib32-opencl-nvidia \
+            vulkan-icd-loader \
+            lib32-vulkan-icd-loader \
+            egl-wayland \
+            2>/dev/null || true
+        
+        # Enable NVIDIA services
+        sudo systemctl enable nvidia-persistenced 2>/dev/null || true
+        sudo systemctl enable nvidia-powerd 2>/dev/null || true
+        
+        log_info "NVIDIA drivers installed"
+    else
+        log_info "NVIDIA drivers already installed"
+    fi
+    
+    # Configure NVIDIA settings
+    configure_nvidia
+}
+
+# Configure NVIDIA
+configure_nvidia() {
+    log_info "Configuring NVIDIA settings..."
+    
+    # Create NVIDIA configuration
+    mkdir -p ~/.config/nvidia
+    cat > ~/.config/nvidia/nvidia-config.conf << 'EOF'
+# Moon OS NVIDIA Configuration
+# Optimized for gaming performance
+
+# Enable all GPUs
+AllowEmptyInitialConfiguration
+
+# Enable G-Sync compatible
+AllowGSYNCCompatible
+
+# Enable HDMI 2.1
+AllowHDMI21
+
+# Power management
+CoolBits 28
+PowerMizerEnable 1
+PowerMizerLevel 1
+PowerMizerLevelAC 1
+EOF
+    
+    # Create Xorg configuration for NVIDIA
+    sudo mkdir -p /etc/X11/xorg.conf.d
+    sudo cat > /etc/X11/xorg.conf.d/20-nvidia.conf << 'EOF'
+Section "Device"
+    Identifier "NVIDIA GPU"
+    Driver "nvidia"
+    VendorName "NVIDIA Corporation"
+    Option "Coolbits" "28"
+    Option "TripleBuffer" "True"
+    Option "NoLogo" "True"
+    Option "RegistryDwords" "PerfLevelSrc=0x2222"
+EndSection
+
+Section "Screen"
+    Identifier "Default Screen"
+    Device "NVIDIA GPU"
+    Option "metamodes" "nvidia-auto-select +0+0 {ForceFullCompositionPipeline=On}"
+    Option "AllowIndirectGLXProtocol" "off"
+EndSection
+EOF
+    
+    # Create Wayland configuration
+    sudo mkdir -p /etc/environment.d
+    sudo cat > /etc/environment.d/10-nvidia.conf << 'EOF'
+GBM_BACKEND=nvidia-drm
+__GLX_VENDOR_LIBRARY_NAME=nvidia
+WLR_NO_HARDWARE_CURSORS=1
+EOF
+    
+    log_info "NVIDIA configuration complete"
+}
+
+# Detect AMD GPU
+detect_amd_gpu() {
+    log_step "AMD GPU detected - configuring drivers..."
+    
+    # Get AMD GPU model
+    local amd_model=$(lspci | grep -i "amd\|radeon" | grep -i "vga\|3d\|display" | head -1 | awk '{print $NF}')
+    log_info "AMD GPU: $amd_model"
+    
+    # Install AMD drivers
+    sudo pacman -S --needed --noconfirm \
+        mesa \
+        lib32-mesa \
+        vulkan-radeon \
+        lib32-vulkan-radeon \
+        amdvlk \
+        lib32-amdvlk \
+        xf86-video-amdgpu \
+        libva-mesa-driver \
+        mesa-vdpau \
+        2>/dev/null || true
+    
+    # Configure AMD GPU
+    configure_amd_gpu
+    
+    log_info "AMD GPU drivers configured"
+}
+
+# Configure AMD GPU
+configure_amd_gpu() {
+    log_info "Configuring AMD GPU..."
+    
+    # Create AMDGPU configuration
+    sudo mkdir -p /etc/modprobe.d
+    cat > /tmp/amdgpu.conf << 'EOF'
+# Moon OS AMDGPU Configuration
+# Optimized for gaming performance
+
+options amdgpu ppfeaturemask=0xffffffff
+options amdgpu dc=1
+options amdgpu deep_color=1
+options amdgpu vcn=1
+options amdgpu jpeg=1
+options amdgpu mes=1
+options amdgpu noretry=0
+options amdgpu backdoor=0
+EOF
+    sudo mv /tmp/amdgpu.conf /etc/modprobe.d/amdgpu.conf
+    
+    # Create environment configuration
+    sudo mkdir -p /etc/environment.d
+    cat > /tmp/10-amd.conf << 'EOF'
+MANGOHUD_CONFIG=cpu_temp,gpu_temp,ram,vram,fps
+VK_LAYER_PATH=/usr/share/vulkan/implicit_layer.d
+EOF
+    sudo mv /tmp/10-amd.conf /etc/environment.d/10-amd.conf
+    
+    log_info "AMD GPU configuration complete"
+}
+
+# Detect Intel GPU
+detect_intel_gpu() {
+    log_step "Intel GPU detected - configuring drivers..."
+    
+    # Install Intel drivers
+    sudo pacman -S --needed --noconfirm \
+        mesa \
+        lib32-mesa \
+        vulkan-intel \
+        lib32-vulkan-intel \
+        xf86-video-intel \
+        intel-media-driver \
+        libva-intel-driver \
+        intel-gpu-tools \
+        2>/dev/null || true
+    
+    # Configure Intel GPU
+    configure_intel_gpu
+    
+    log_info "Intel GPU drivers configured"
+}
+
+# Configure Intel GPU
+configure_intel_gpu() {
+    log_info "Configuring Intel GPU..."
+    
+    # Create Intel GPU configuration
+    sudo mkdir -p /etc/environment.d
+    cat > /tmp/10-intel.conf << 'EOF'
+MANGOHUD_CONFIG=cpu_temp,gpu_temp,ram,vram,fps
+VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/intel_icd.x86_64.json
+LIBVA_DRIVER_NAME=iHD
+EOF
+    sudo mv /tmp/10-intel.conf /etc/environment.d/10-intel.conf
+    
+    log_info "Intel GPU configuration complete"
+}
+
+# Detect audio
+detect_audio() {
+    log_step "Detecting audio devices..."
+    
+    local audio_cards=$(aplay -l 2>/dev/null | grep -E "card [0-9]" || echo "No audio cards detected")
+    
+    echo "Audio Devices:"
+    echo "$audio_cards" | while read -r line; do
+        echo "  $line"
+    done
+    
+    # Configure PipeWire for gaming
+    configure_pipewire
+}
+
+# Configure PipeWire
+configure_pipewire() {
+    log_info "Configuring PipeWire for gaming..."
+    
+    mkdir -p ~/.config/pipewire
+    
+    # Create gaming-optimized PipeWire configuration
+    cat > ~/.config/pipewire/pipewire.conf.d/99-gaming.conf << 'EOF'
+# Moon OS Gaming Audio Configuration
+# Optimized for low latency
+
+context.properties = {
+    default.clock.rate = 48000
+    default.clock.quantum = 64
+    default.clock.min-quantum = 32
+    default.clock.max-quantum = 2048
+}
+
+context.modules = [
+    { name = libpipewire-module-rt
+      args = {
+          nice.level = -11
+          rt.prio = 88
+          rt.time.soft = -1
+          rt.time.hard = -1
+      }
+      flags = [ ifexists nofail ]
+    }
+]
+EOF
+    
+    # Create WirePlumber configuration
+    mkdir -p ~/.config/wireplumber/main.lua.d
+    cat > ~/.config/wireplumber/main.lua.d/51-gaming-config.lua << 'EOF'
+-- Moon OS Gaming Audio Configuration
+
+rule = {
+  matches = {
+    {
+      { "media.class", "equals", "Audio/Sink" },
+    },
+  },
+  apply_properties = {
+    ["audio.format"] = "S32LE",
+    ["audio.rate"] = 48000,
+    ["audio.channels"] = 2,
+    ["api.alsa.period-size"] = 256,
+    ["api.alsa.period-num"] = 2,
+    ["api.alsa.headroom"] = 1024,
+  },
+}
+
+table.insert(alsa_monitor.rules, rule)
+EOF
+    
+    log_info "PipeWire gaming configuration complete"
+}
+
+# Detect network
+detect_network() {
+    log_step "Detecting network devices..."
+    
+    local net_devices=$(ip link show | grep -E "^[0-9]+" | awk -F: '{print $2}' | tr -d ' ')
+    
+    echo "Network Devices:"
+    echo "$net_devices" | while read -r line; do
+        echo "  $line"
+    done
+    
+    # Detect WiFi
+    if ip link show | grep -qi "wlan\|wlp"; then
+        log_info "WiFi adapter detected"
+        configure_wifi
+    fi
+    
+    # Detect Ethernet
+    if ip link show | grep -qi "eth\|enp"; then
+        log_info "Ethernet adapter detected"
+        configure_ethernet
+    fi
+}
+
+# Configure WiFi
+configure_wifi() {
+    log_info "Configuring WiFi..."
+    
+    sudo pacman -S --needed --noconfirm \
+        iwd \
+        wpa_supplicant \
+        networkmanager \
+        2>/dev/null || true
+    
+    sudo systemctl enable NetworkManager
+    sudo systemctl enable iwd
+    
+    log_info "WiFi configured"
+}
+
+# Configure Ethernet
+configure_ethernet() {
+    log_info "Configuring Ethernet..."
+    
+    # Enable NetworkManager
+    sudo systemctl enable NetworkManager
+    
+    log_info "Ethernet configured"
+}
+
+# Detect storage
+detect_storage() {
+    log_step "Detecting storage devices..."
+    
+    local storage=$(lsblk -d -o NAME,SIZE,TYPE,ROTA,MODEL | grep -E "disk|loop")
+    
+    echo "Storage Devices:"
+    echo "$storage" | while read -r line; do
+        echo "  $line"
+    done
+    
+    # Detect NVMe
+    if ls /dev/nvme* &>/dev/null; then
+        log_info "NVMe drive detected"
+        configure_nvme
+    fi
+    
+    # Detect SSD
+    for disk in /dev/sd*; do
+        if [[ -b "$disk" ]] && [[ "$(cat /sys/block/$(basename $disk)/queue/rotational 2>/dev/null)" == "0" ]]; then
+            log_info "SSD detected: $disk"
+            configure_ssd "$disk"
+        fi
+    done
+}
+
+# Configure NVMe
+configure_nvme() {
+    log_info "Configuring NVMe optimizations..."
+    
+    # Enable NVMe power management
+    for nvme in /dev/nvme*; do
+        if [[ -b "$nvme" ]]; then
+            echo 0 | sudo tee /sys/block/$(basename $nvme)/queue/io_scheduler > /dev/null 2>/dev/null || true
+        fi
+    done
+    
+    log_info "NVMe optimizations applied"
+}
+
+# Configure SSD
+configure_ssd() {
+    local disk="$1"
+    log_info "Configuring SSD optimizations for $disk..."
+    
+    # Set I/O scheduler
+    echo none | sudo tee /sys/block/$(basename $disk)/queue/io_scheduler > /dev/null 2>/dev/null || true
+    
+    # Set read-ahead
+    echo 256 | sudo tee /sys/block/$(basename $disk)/queue/read_ahead_kb > /dev/null 2>/dev/null || true
+    
+    log_info "SSD optimizations applied for $disk"
+}
+
+# Detect input devices
+detect_input() {
+    log_step "Detecting input devices..."
+    
+    local input_devices=$(cat /proc/bus/input/devices | grep -E "^[IN]:|Name=")
+    
+    echo "Input Devices:"
+    echo "$input_devices" | grep "Name=" | while read -r line; do
+        echo "  $line"
+    done
+    
+    # Configure input devices
+    configure_input
+}
+
+# Configure input
+configure_input() {
+    log_info "Configuring input devices for gaming..."
+    
+    # Enable mouse acceleration removal
+    sudo mkdir -p /etc/X11/xorg.conf.d
+    cat > /tmp/10-input.conf << 'EOF'
+Section "InputClass"
+    Identifier "Mouse Configuration"
+    MatchIsMouse "on"
+    Option "AccelerationNumerator" "0"
+    Option "AccelerationDenominator" "1"
+    Option "AccelerationThreshold" "0"
+EndSection
+
+Section "InputClass"
+    Identifier "Keyboard Configuration"
+    MatchIsKeyboard "on"
+    Option "XkbOptions" "terminate:ctrl_alt_bksp"
+EndSection
+EOF
+    sudo mv /tmp/10-input.conf /etc/X11/xorg.conf.d/10-input.conf
+    
+    # Configure evdev for low latency
+    sudo mkdir -p /etc/udev/rules.d
+    cat > /tmp/99-input-latency.rules << 'EOF'
+# Moon OS Input Latency Optimization
+SUBSYSTEM=="input", ATTR{../driver}=="evdev", RUN+="/bin/sh -c 'echo 1 > /sys/class/input/%k/device/rep'"
+EOF
+    sudo mv /tmp/99-input-latency.rules /etc/udev/rules.d/
+    
+    log_info "Input configuration complete"
+}
+
+# Detect laptop
+detect_laptop() {
+    log_step "Detecting laptop..."
+    
+    if [[ -d /sys/class/dmi/id/chassis_type ]]; then
+        local chassis_type=$(cat /sys/class/dmi/id/chassis_type)
+        
+        case "$chassis_type" in
+            8|9|10|11|12|13|14|15)
+                log_info "Laptop detected (chassis type: $chassis_type)"
+                configure_laptop
+                ;;
+            *)
+                log_info "Desktop/Mini PC detected (chassis type: $chassis_type)"
+                configure_desktop
+                ;;
+        esac
+    fi
+}
+
+# Configure laptop
+configure_laptop() {
+    log_info "Configuring laptop power management..."
+    
+    # Install power management tools
+    sudo pacman -S --needed --noconfirm \
+        tlp \
+        powertop \
+        brightnessctl \
+        2>/dev/null || true
+    
+    # Enable TLP
+    sudo systemctl enable tlp
+    
+    # Create TLP configuration
+    sudo cat > /etc/tlp.conf << 'EOF'
+# Moon OS TLP Configuration
+# Optimized for gaming laptops
+
+CPU_SCALING_GOVERNOR_ON_AC=performance
+CPU_SCALING_GOVERNOR_ON_BAT=powersave
+
+CPU_ENERGY_PERF_POLICY_ON_AC=performance
+CPU_ENERGY_PERF_POLICY_ON_BAT=balance_power
+
+CPU_BOOST_ON_AC=1
+CPU_BOOST_ON_BAT=0
+
+SCHED_POWERSAVE_ON_AC=0
+SCHED_POWERSAVE_ON_BAT=1
+
+DISK_APM_LEVEL_ON_AC="254"
+DISK_APM_LEVEL_ON_BAT="128"
+
+SOUND_POWER_SAVE_ON_AC=0
+SOUND_POWER_SAVE_ON_BAT=1
+
+WIFI_PWR_ON_AC=off
+WIFI_PWR_ON_BAT=on
+
+RUNTIME_PM_ON_AC=auto
+RUNTIME_PM_ON_BAT=auto
+EOF
+    
+    # Configure brightness
+    sudo mkdir -p /etc/udev/rules.d
+    cat > /tmp/99-brightness.rules << 'EOF'
+SUBSYSTEM=="backlight", RUN+="/bin/chgrp video /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+EOF
+    sudo mv /tmp/99-brightness.rules /etc/udev/rules.d/
+    
+    log_info "Laptop configuration complete"
+}
+
+# Configure desktop
+configure_desktop() {
+    log_info "Configuring desktop power management..."
+    
+    # Set performance mode
+    sudo pacman -S --needed --noconfirm \
+        cpupower \
+        2>/dev/null || true
+    
+    # Enable performance mode
+    sudo cpupower frequency-set -g performance 2>/dev/null || true
+    
+    log_info "Desktop configuration complete"
+}
+
+# Detect gaming controller
+detect_controllers() {
+    log_step "Detecting gaming controllers..."
+    
+    local controllers=$(ls /dev/input/js* 2>/dev/null || echo "No controllers detected")
+    
+    echo "Gaming Controllers:"
+    echo "$controllers" | while read -r line; do
+        echo "  $line"
+    done
+    
+    # Install controller support
+    sudo pacman -S --needed --noconfirm \
+        sdl2 \
+        lib32-sdl2 \
+        steam-controller-udev-rules \
+        2>/dev/null || true
+    
+    # Create udev rules for controllers
+    sudo mkdir -p /etc/udev/rules.d
+    cat > /tmp/99-controllers.rules << 'EOF'
+# Moon OS Gaming Controller Rules
+
+# Xbox controllers
+SUBSYSTEM=="usb", ATTRS{idVendor}=="045e", MODE="0666"
+
+# PlayStation controllers
+SUBSYSTEM=="usb", ATTRS{idVendor}=="054c", MODE="0666"
+
+# Nintendo controllers
+SUBSYSTEM=="usb", ATTRS{idVendor}=="057e", MODE="0666"
+
+# Steam controllers
+SUBSYSTEM=="usb", ATTRS{idVendor}=="28de", MODE="0666"
+
+# Generic gamepads
+SUBSYSTEM=="input", MODE="0666"
+EOF
+    sudo mv /tmp/99-controllers.rules /etc/udev/rules.d/
+    
+    log_info "Controller configuration complete"
+}
+
+# Apply gaming optimizations
+apply_gaming_optimizations() {
+    log_step "Applying gaming optimizations..."
+    
+    # Install gaming packages
+    sudo pacman -S --needed --noconfirm \
+        gamemode \
+        lib32-gamemode \
+        mangohud \
+        lib32-mangohud \
+        gamescope \
+        2>/dev/null || true
+    
+    # Create GameMode configuration
+    mkdir -p ~/.config
+    cat > ~/.config/gamemode.ini << 'EOF'
+[general]
+enabled=1
+gpu_device=0
+affinity=0-15
+soft_idle=5000
+
+[cpu]
+park_cores=0
+pin_cores=1
+
+[gpu]
+apply_gpu_optimisations=1
+gpu_core_clock=0
+gpu_mem_clock=0
+gpu_power_state=0
+
+[ioprio]
+io_class=2
+
+[scheduler]
+sched_policy=0
+sched_priority=4
+
+[nice]
+nice_value=0
+
+[platform]
+platform_type=0
+EOF
+    
+    # Create MangoHud configuration
+    mkdir -p ~/.config/MangoHud
+    cat > ~/.config/MangoHud/MangoHud.conf << 'EOF'
+# Moon OS MangoHud Configuration
+# Optimized for gaming
+
+legacy_layout=0
+no_display
+toggle_hud=Shift_R+F12
+
+# Performance overlay
+fps
+fps_limit=0,144,165,240,360
+frame_timing
+frametime
+gpu_stats
+gpu_temp
+gpu_power
+gpu_core_clock
+gpu_mem_clock
+gpu_voltage
+gpu_load_change
+gpu_load_value=50,90
+
+# CPU
+cpu_stats
+cpu_temp
+cpu_power
+cpu_mhz
+cpu_load_change
+cpu_load_value=50,90
+
+# Memory
+ram
+vram
+swap
+
+# Network
+network
+
+# IO
+disk_stats
+disk_io
+
+# Battery (for laptops)
+battery
+
+# Appearance
+font_size=24
+position=top-left
+round_corners=10.0
+background_alpha=0.4
+background_color=000000
+text_color=FFFFFF
+gpu_color=2C8AFF
+cpu_color=2EFF2E
+vram_color=FFB3DE
+ram_color=FFBF00
+engine_color=BD93F9
+io_color=40A02B
+frametime_color=FCE200
+background_color=020202
+EOF
+    
+    # Create Gamescope configuration
+    mkdir -p ~/.config/gamescope
+    cat > ~/.config/gamescope/gamescope.env << 'EOF'
+# Moon OS Gamescope Configuration
+# Optimized for gaming
+
+GAMESCOPE_WIDTH=1920
+GAMESCOPE_HEIGHT=1080
+GAMESCOPE_REFRESH_RATE=144
+GAMESCOPE_FPS_LIMIT=144
+GAMESCOPE_HDR_ENABLED=1
+GAMESCOPE_VRR_ENABLED=1
+GAMESCOPE_FORCE_LINEAR_COLOR=1
+EOF
+    
+    log_info "Gaming optimizations applied"
+}
+
+# Apply kernel optimizations
+apply_kernel_optimizations() {
+    log_step "Applying kernel optimizations..."
+    
+    # Create sysctl configuration for gaming
+    sudo cat > /etc/sysctl.d/99-gaming.conf << 'EOF'
+# Moon OS Gaming Kernel Optimizations
+
+# Network optimizations
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.ipv4.tcp_rmem=4096 87380 16777216
+net.ipv4.tcp_wmem=4096 65536 16777216
+net.core.netdev_max_backlog=5000
+net.ipv4.tcp_window_scaling=1
+net.ipv4.tcp_timestamps=1
+net.ipv4.tcp_sack=1
+net.ipv4.tcp_no_metrics_save=1
+net.ipv4.tcp_syncookies=1
+net.ipv4.tcp_max_syn_backlog=4096
+net.ipv4.tcp_congestion_control=bbr
+
+# Virtual memory optimizations
+vm.dirty_ratio=10
+vm.dirty_background_ratio=5
+vm.dirty_writeback_centisecs=1500
+vm.dirty_expire_centisecs=3000
+vm.vfs_cache_pressure=50
+vm.swappiness=10
+vm.min_free_kbytes=65536
+vm.zone_reclaim_mode=0
+
+# Kernel optimizations
+kernel.sched_autogroup_enabled=0
+kernel.sched_child_runs_first=0
+kernel.sched_tunable_scaling=off
+kernel.sched_latency_ns=1000000
+kernel.sched_min_granularity_ns=750000
+kernel.sched_wakeup_granularity_ns=1000000
+kernel.sched_migration_cost_ns=250000
+kernel.sched_nr_migrate=32
+
+# File system optimizations
+fs.file-max=2097152
+fs.inotify.max_user_watches=524288
+fs.inotify.max_user_instances=512
+fs.aio-max-nr=1048576
+
+# Security optimizations (for gaming)
+kernel.kptr_restrict=0
+kernel.yama.ptrace_scope=0
+EOF
+    
+    log_info "Kernel optimizations applied"
+}
+
+# Apply filesystem optimizations
+apply_filesystem_optimizations() {
+    log_step "Applying filesystem optimizations..."
+    
+    # Detect root filesystem
+    local root_fs=$(mount | grep " / " | awk '{print $5}')
+    
+    case "$root_fs" in
+        ext4)
+            log_info "Optimizing ext4..."
+            # Already optimized with proper mount options
+            ;;
+        btrfs)
+            log_info "Optimizing btrfs..."
+            sudo pacman -S --needed --noconfirm btrfs-progs 2>/dev/null || true
+            ;;
+        *)
+            log_info "Filesystem: $root_fs (no specific optimizations)"
+            ;;
+    esac
+    
+    log_info "Filesystem optimizations applied"
+}
+
+# Apply audio optimizations
+apply_audio_optimizations() {
+    log_step "Applying audio optimizations..."
+    
+    # Install audio packages
+    sudo pacman -S --needed --noconfirm \
+        pipewire \
+        pipewire-pulse \
+        pipewire-alsa \
+        pipewire-jack \
+        lib32-pipewire \
+        wireplumber \
+        2>/dev/null || true
+    
+    # Enable PipeWire services
+    sudo systemctl enable pipewire
+    sudo systemctl enable pipewire-pulse
+    sudo systemctl enable wireplumber
+    
+    # Create audio optimization configuration
+    sudo mkdir -p /etc/security/limits.d
+    cat > /tmp/99-audio.conf << 'EOF'
+# Moon OS Audio Optimizations
+@audio - rtprio 95
+@audio - memlock unlimited
+@audio - nice -10
+EOF
+    sudo mv /tmp/99-audio.conf /etc/security/limits.d/
+    
+    log_info "Audio optimizations applied"
+}
+
+# Apply network optimizations
+apply_network_optimizations() {
+    log_step "Applying network optimizations..."
+    
+    # Install network packages
+    sudo pacman -S --needed --noconfirm \
+        networkmanager \
+        iwd \
+        wpa_supplicant \
+        2>/dev/null || true
+    
+    # Enable services
+    sudo systemctl enable NetworkManager
+    sudo systemctl enable iwd
+    
+    # Create network optimization configuration
+    sudo cat > /etc/NetworkManager/conf.d/99-gaming.conf << 'EOF'
+[main]
+dns=systemd-resolved
+
+[connection]
+wifi.powersave=2
+
+[device]
+wifi.scan-rand-mac-address=yes
+EOF
+    
+    log_info "Network optimizations applied"
+}
+
+# Apply display optimizations
+apply_display_optimizations() {
+    log_step "Applying display optimizations..."
+    
+    # Install display packages
+    sudo pacman -S --needed --noconfirm \
+        xorg-server \
+        xorg-drivers \
+        xorg-xrandr \
+        xorg-xset \
+        wayland \
+        wayland-protocols \
+        2>/dev/null || true
+    
+    # Create display configuration
+    sudo mkdir -p /etc/X11/xorg.conf.d
+    cat > /tmp/10-display.conf << 'EOF'
+Section "Screen"
+    Identifier "Default Screen"
+    Option "AllowIndirectGLXProtocol" "off"
+    Option "TripleBuffer" "True"
+EndSection
+EOF
+    sudo mv /tmp/10-display.conf /etc/X11/xorg.conf.d/
+    
+    # Create Wayland configuration
+    sudo mkdir -p /etc/environment.d
+    cat > /tmp/10-display.conf << 'EOF'
+MOZ_ENABLE_WAYLAND=1
+GDK_BACKEND=wayland,x11
+QT_QPA_PLATFORM=wayland;xcb
+SDL_VIDEODRIVER=wayland
+CLUTTER_BACKEND=wayland
+XDG_SESSION_TYPE=wayland
+EOF
+    sudo mv /tmp/10-display.conf /etc/environment.d/10-display.conf
+    
+    log_info "Display optimizations applied"
+}
+
+# Apply security optimizations
+apply_security_optimizations() {
+    log_step "Applying security optimizations..."
+    
+    # Configure firewall
+    sudo pacman -S --needed --noconfirm \
+        firewalld \
+        2>/dev/null || true
+    
+    sudo systemctl enable firewalld
+    
+    # Create gaming-friendly firewall rules
+    sudo cat > /tmp/gaming.xml << 'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<zone>
+  <short>Gaming</short>
+  <description>Firewall zone for gaming applications</description>
+  <service name="dhcpv6-client"/>
+  <service name="ssh"/>
+  <port protocol="tcp" port="27015-27030"/>
+  <port protocol="udp" port="27000-27100"/>
+  <port protocol="tcp" port="3478-4380"/>
+  <port protocol="udp" port="3478-4380"/>
+  <port protocol="tcp" port="27036-27037"/>
+  <port protocol="udp" port="4380"/>
+  <port protocol="tcp" port="27015-27050"/>
+  <port protocol="udp" port="3480"/>
+  <port protocol="tcp" port="1935"/>
+  <port protocol="tcp" port="3478"/>
+  <port protocol="udp" port="3478"/>
+  <port protocol="tcp" port="3479"/>
+  <port protocol="udp" port="3479"/>
+  <port protocol="tcp" port="3480"/>
+</zone>
+EOF
+    sudo firewall-cmd --permanent --new-zone=gaming 2>/dev/null || true
+    sudo firewall-cmd --permanent --zone=gaming --add-source="" 2>/dev/null || true
+    sudo firewall-cmd --reload 2>/dev/null || true
+    
+    log_info "Security optimizations applied"
+}
+
+# Generate hardware report
+generate_report() {
+    log_step "Generating hardware report..."
+    
+    local report="/tmp/moon-hardware-report.txt"
+    
+    cat > "$report" << EOF
+Moon OS Hardware Detection Report
+===================================
+Generated: $(date)
+
+CPU Information:
+$(lscpu | grep -E "^(Architecture|CPU\(s\)|Vendor|Model|Thread|Core|Socket|MHz|Cache)")
+
+GPU Information:
+$(lspci | grep -E "VGA|3D|Display")
+
+Memory Information:
+$(free -h)
+
+Storage Information:
+$(lsblk -d -o NAME,SIZE,TYPE,ROTA)
+
+Network Information:
+$(ip link show | grep -E "^[0-9]+")
+
+Audio Information:
+$(aplay -l 2>/dev/null || echo "No audio devices")
+
+USB Information:
+$(lsusb 2>/dev/null || echo "No USB devices")
+
+Input Information:
+$(cat /proc/bus/input/devices | grep -E "^[IN]:|Name=")
+
+Display Information:
+$(xrandr 2>/dev/null | head -20 || echo "No display detected")
+
+Gaming Controllers:
+$(ls /dev/input/js* 2>/dev/null || echo "No controllers detected")
+EOF
+    
+    log_info "Hardware report saved to: $report"
+}
+
+# Main function
+main() {
+    echo "=========================================="
+    echo "  Moon OS Hardware Detection System"
+    echo "  Version: $MOON_DETECT_VERSION"
+    echo "=========================================="
+    echo ""
+    
+    detect_cpu
+    detect_gpu
+    detect_audio
+    detect_network
+    detect_storage
+    detect_input
+    detect_laptop
+    detect_controllers
+    
+    echo ""
+    echo "=========================================="
+    echo "  Applying Optimizations"
+    echo "=========================================="
+    echo ""
+    
+    apply_gaming_optimizations
+    apply_kernel_optimizations
+    apply_filesystem_optimizations
+    apply_audio_optimizations
+    apply_network_optimizations
+    apply_display_optimizations
+    apply_security_optimizations
+    
+    generate_report
+    
+    echo ""
+    echo "=========================================="
+    echo "  Hardware Detection Complete"
+    echo "=========================================="
+    echo ""
+    log_success "All hardware detected and configured!"
+    log_info "A hardware report has been saved to /tmp/moon-hardware-report.txt"
+    log_info "Please reboot your system for all changes to take effect."
+}
+
+# Run main function
+main "$@"

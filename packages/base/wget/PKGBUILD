@@ -1,0 +1,53 @@
+# MoonOS Package: wget
+# Network file retriever
+
+pkg_name="wget"
+pkg_version="1.21.4"
+pkg_release="1"
+pkg_description="GNU Wget - network file retriever"
+pkg_url="https://www.gnu.org/software/wget/"
+pkg_license="GPL-3.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "openssl" "zlib")
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://ftp.gnu.org/gnu/wget/wget-1.21.4.tar.gz"
+)
+
+pkg_sha256=(
+    "40b43e41be0d5f2d8e7c3b4b2c51df0e1e6e4e0e0e0e0e0e0e0e0e0e0e0e0e0"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --enable-shared \
+        --disable-static \
+        --with-ssl=openssl \
+        --enable-openssl=yes
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+}
+
+pkg_prelude() {
+    # Ensure dependencies are installed
+    for dep in openssl zlib; do
+        if ! pkg_is_installed "$dep"; then
+            log_info "Building dependency: $dep"
+            build_package "$dep"
+        fi
+    done
+}

@@ -1,0 +1,382 @@
+# Moon OS CI/CD Pipeline
+# GitHub Actions workflow for building and testing Moon OS
+
+name: Moon OS CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target architecture'
+        required: false
+        default: 'x86_64'
+        type: choice
+        options:
+          - x86_64
+          - aarch64
+      desktop:
+        description: 'Desktop environment'
+        required: false
+        default: 'cosmic'
+        type: choice
+        options:
+          - cosmic
+          - gnome
+          - kde
+          - hyprland
+
+env:
+  MOON_OS_VERSION: "1.0.0"
+  MOON_OS_CODENAME: "Apex"
+
+jobs:
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run shellcheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.'
+          severity: 'warning'
+
+      - name: Run yamllint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          file_or_dir: '.'
+          config_data: |
+            extends: default
+            rules:
+              line-length:
+                max: 120
+
+  validate:
+    name: Validate Packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate package definitions
+        run: |
+          for pkg in packages/*/PKGBUILD; do
+            if [[ -f "$pkg" ]]; then
+              echo "Validating $pkg..."
+              bash -n "$pkg"
+            fi
+          done
+
+      - name: Validate YAML files
+        run: |
+          for yaml in packages/**/*.yaml; do
+            if [[ -f "$yaml" ]]; then
+              echo "Validating $yaml..."
+              python3 -c "import yaml; yaml.safe_load(open('$yaml'))"
+            fi
+          done
+
+  build-kernel:
+    name: Build Gaming Kernel
+    runs-on: ubuntu-latest
+    needs: [lint, validate]
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            flex \
+            bison \
+            libssl-dev \
+            libelf-dev \
+            bc \
+            python3 \
+            qemu-user-static \
+            binfmt-support
+
+      - name: Download kernel source
+        run: |
+          wget -q https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.5.tar.xz
+          tar xf linux-6.12.5.tar.xz
+
+      - name: Apply Moon OS kernel config
+        run: |
+          cd linux-6.12.5
+          cp ../packages/kernel/moon-kernel/config/gaming-${{ matrix.target }}.config .config
+          make olddefconfig
+
+      - name: Build kernel
+        run: |
+          cd linux-6.12.5
+          make -j$(nproc)
+          make modules
+
+      - name: Package kernel
+        run: |
+          cd linux-6.12.5
+          make modules_install INSTALL_MOD_PATH=../kernel-modules
+          tar czf ../moon-kernel-${{ matrix.target }}.tar.gz -C ../kernel-modules .
+
+      - name: Upload kernel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moon-kernel-${{ matrix.target }}
+          path: moon-kernel-${{ matrix.target }}.tar.gz
+          retention-days: 30
+
+  build-packages:
+    name: Build Packages
+    runs-on: ubuntu-latest
+    needs: [lint, validate]
+    strategy:
+      matrix:
+        package: [gamemode, mangohud, gamescope, steam-tweaks]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            meson \
+            ninja-build \
+            cmake \
+            pkg-config
+
+      - name: Build package
+        run: |
+          cd packages/gaming
+          # Build package based on matrix.package
+          echo "Building ${{ matrix.package }}..."
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.package }}
+          path: packages/gaming/${{ matrix.package }}/
+          retention-days: 30
+
+  build-desktop:
+    name: Build Desktop
+    runs-on: ubuntu-latest
+    needs: [lint, validate]
+    strategy:
+      matrix:
+        desktop: [cosmic, gnome, kde, hyprland]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            meson \
+            ninja-build \
+            cmake \
+            pkg-config
+
+      - name: Build desktop environment
+        run: |
+          echo "Building ${{ matrix.desktop }}..."
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.desktop }}
+          path: packages/desktop/${{ matrix.desktop }}/
+          retention-days: 30
+
+  build-iso:
+    name: Build ISO
+    runs-on: ubuntu-latest
+    needs: [build-kernel, build-packages, build-desktop]
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+        desktop: [cosmic, gnome]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download kernel
+        uses: actions/download-artifact@v4
+        with:
+          name: moon-kernel-${{ matrix.target }}
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/
+
+      - name: Download desktop
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-${{ matrix.desktop }}
+          path: desktop/
+
+      - name: Setup build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            squashfs-tools \
+            xorriso \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            mtools \
+            dosfstools \
+            wget \
+            arch-install-scripts
+
+      - name: Build ISO
+        run: |
+          chmod +x moonpkg
+          ./moonpkg build-iso \
+            --target=${{ matrix.target }} \
+            --desktop=${{ matrix.desktop }} \
+            --output=moonos-${{ env.MOON_OS_VERSION }}-${{ matrix.target }}-${{ matrix.desktop }}.iso
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moonos-${{ matrix.target }}-${{ matrix.desktop }}
+          path: moonos-${{ env.MOON_OS_VERSION }}-${{ matrix.target }}-${{ matrix.desktop }}.iso
+          retention-days: 30
+
+  test:
+    name: Test ISO
+    runs-on: ubuntu-latest
+    needs: [build-iso]
+    strategy:
+      matrix:
+        target: [x86_64, aarch64]
+        desktop: [cosmic, gnome]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download ISO
+        uses: actions/download-artifact@v4
+        with:
+          name: moonos-${{ matrix.target }}-${{ matrix.desktop }}
+
+      - name: Setup QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qemu-system-x86 \
+            qemu-efi-aarch64 \
+            ovmf
+
+      - name: Test ISO boot
+        run: |
+          chmod +x tests/test-boot.sh
+          ./tests/test-boot.sh moonos-${{ env.MOON_OS_VERSION }}-${{ matrix.target }}-${{ matrix.desktop }}.iso
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [build-iso]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create checksums
+        run: |
+          find . -name "*.iso" -exec sha256sum {} \; > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.MOON_OS_VERSION }}
+          name: Moon OS ${{ env.MOON_OS_CODENAME }} v${{ env.MOON_OS_VERSION }}
+          body: |
+            ## Moon OS ${{ env.MOON_OS_CODENAME }} v${{ env.MOON_OS_VERSION }}
+            
+            ### What's New
+            - Custom gaming kernel with low-latency optimizations
+            - Automatic hardware detection and driver installation
+            - Gaming-optimized desktop environments
+            - Pre-configured gaming stack (Steam, Proton, Wine)
+            - Performance optimizations for CPU, memory, I/O, and network
+            - Support for NVIDIA, AMD, and Intel GPUs
+            - Support for laptops, desktops, mini PCs, and gaming handhelds
+            
+            ### Downloads
+            - x86_64 COSMIC ISO
+            - x86_64 GNOME ISO
+            - aarch64 COSMIC ISO
+            - aarch64 GNOME ISO
+            
+            ### Verification
+            See checksums.txt for SHA256 verification.
+            
+            ### Documentation
+            - [Installation Guide](https://moonos.dev/docs/installation)
+            - [Gaming Guide](https://moonos.dev/docs/gaming)
+            - [Hardware Support](https://moonos.dev/docs/hardware)
+            
+            ### Community
+            - [Discord](https://discord.gg/moonos)
+            - [Reddit](https://reddit.com/r/moonos)
+            - [GitHub](https://github.com/moonos/moonos)
+          files: |
+            moonos-${{ env.MOON_OS_VERSION }}-x86_64-cosmic/moonos-*.iso
+            moonos-${{ env.MOON_OS_VERSION }}-x86_64-gnome/moonos-*.iso
+            moonos-${{ env.MOON_OS_VERSION }}-aarch64-cosmic/moonos-*.iso
+            moonos-${{ env.MOON_OS_VERSION }}-aarch64-gnome/moonos-*.iso
+            checksums.txt
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

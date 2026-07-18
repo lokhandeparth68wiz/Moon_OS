@@ -1,0 +1,158 @@
+#!/bin/bash
+# MKBS - Moon Kit Build System
+# Main entry point for the build system
+# Version: 1.0.0
+
+set -euo pipefail
+
+MKBS_VERSION="1.0.0"
+MKBS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MOONOS_ROOT="$(dirname "$MKBS_ROOT")"
+
+# Source core libraries
+source "${MKBS_ROOT}/core/logging.sh"
+source "${MKBS_ROOT}/core/config.sh"
+source "${MKBS_ROOT}/core/package.sh"
+source "${MKBS_ROOT}/core/build.sh"
+source "${MKBS_ROOT}/core/image.sh"
+source "${MKBS_ROOT}/core/util.sh"
+
+usage() {
+    cat << EOF
+MoonKit Build System (MKBS) v${MKBS_VERSION}
+
+Usage: mkbs <command> [options]
+
+Commands:
+    configure     Configure build for target platform
+    build         Build packages or package groups
+    install       Install packages to sysroot
+    image         Create bootable images
+    clean         Clean build artifacts
+    pkg           Package management operations
+    test          Run test suites
+    lint          Run linters on packages
+    release       Release engineering operations
+
+Options:
+    --target=<target>      Target platform (x86_64, aarch64, armv7l, riscv64)
+    --profile=<profile>    Build profile (base, desktop, server, minimal)
+    --jobs=<n>             Number of parallel jobs
+    --verbose              Enable verbose output
+    --debug                Enable debug output
+    --repo-dir=<dir>       Custom repository directory
+    --sysroot=<dir>        Custom sysroot directory
+
+Examples:
+    mkbs configure --target=x86_64 --profile=desktop
+    mkbs build base
+    mkbs build --all
+    mkbs image --format=iso --output=moonos.iso
+    mkbs pkg install vim
+    mkbs clean --all
+
+EOF
+    exit 0
+}
+
+main() {
+    local command=""
+    local args=()
+
+    # Parse global options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|-h)
+                usage
+                ;;
+            --version|-v)
+                echo "MKBS v${MKBS_VERSION}"
+                exit 0
+                ;;
+            --verbose)
+                MKBS_VERBOSE=1
+                shift
+                ;;
+            --debug)
+                MKBS_DEBUG=1
+                MKBS_VERBOSE=1
+                shift
+                ;;
+            --jobs=*)
+                MKBS_JOBS="${1#*=}"
+                shift
+                ;;
+            --target=*)
+                MKBS_TARGET="${1#*=}"
+                shift
+                ;;
+            --profile=*)
+                MKBS_PROFILE="${1#*=}"
+                shift
+                ;;
+            --repo-dir=*)
+                MKBS_REPO_DIR="${1#*=}"
+                shift
+                ;;
+            --sysroot=*)
+                MKBS_SYSROOT="${1#*=}"
+                shift
+                ;;
+            -*)
+                log_error "Unknown option: $1"
+                exit 1
+                ;;
+            *)
+                if [[ -z "$command" ]]; then
+                    command="$1"
+                else
+                    args+=("$1")
+                fi
+                shift
+                ;;
+        esac
+    done
+
+    # Initialize build system
+    mkbs_init
+
+    # Execute command
+    case "$command" in
+        configure)
+            mkbs_configure "${args[@]}"
+            ;;
+        build)
+            mkbs_build "${args[@]}"
+            ;;
+        install)
+            mkbs_install "${args[@]}"
+            ;;
+        image)
+            mkbs_image "${args[@]}"
+            ;;
+        clean)
+            mkbs_clean "${args[@]}"
+            ;;
+        pkg)
+            mkbs_pkg "${args[@]}"
+            ;;
+        test)
+            mkbs_test "${args[@]}"
+            ;;
+        lint)
+            mkbs_lint "${args[@]}"
+            ;;
+        release)
+            mkbs_release "${args[@]}"
+            ;;
+        "")
+            usage
+            ;;
+        *)
+            log_error "Unknown command: $command"
+            usage
+            ;;
+    esac
+}
+
+main "$@"

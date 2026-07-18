@@ -1,0 +1,62 @@
+# MoonOS Package: binutils
+# GNU Binary Utilities
+
+pkg_name="binutils"
+pkg_version="2.41"
+pkg_release="1"
+pkg_description="A set of programming tools for the creation and manipulation of binaries"
+pkg_url="https://www.gnu.org/software/binutils/"
+pkg_license="GPL-3.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl")
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://ftp.gnu.org/gnu/binutils/binutils-2.41.tar.xz"
+)
+
+pkg_sha256=(
+    "a41ca67d6e2e55a8e0e25e837f3e657e8e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --libdir=/usr/lib \
+        --enable-shared \
+        --disable-static \
+        --enable-gold \
+        --enable-ld=default \
+        --enable-plugins \
+        --enable-deterministic-archives \
+        --enable-new-dtags \
+        --disable-nls \
+        --disable-werror
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Create compatibility symlinks
+    ln -sf ld "${PKG_INSTALL_DIR}/usr/bin/ld.bfd"
+    ln -sf gold "${PKG_INSTALL_DIR}/usr/bin/ld.gold"
+
+    # Remove unnecessary files
+    rm -rf "${PKG_INSTALL_DIR}/usr/share/info"
+    rm -rf "${PKG_INSTALL_DIR}/usr/share/man/man7"
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}

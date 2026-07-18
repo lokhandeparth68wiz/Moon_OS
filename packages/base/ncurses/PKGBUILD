@@ -1,0 +1,62 @@
+# MoonOS Package: ncurses
+# Terminal handling library
+
+pkg_name="ncurses"
+pkg_version="6.4"
+pkg_release="1"
+pkg_description="The ncurses library for terminal handling"
+pkg_url="https://invisible-island.net/ncurses/"
+pkg_license="MIT"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl")
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://ftp.gnu.org/gnu/ncurses/ncurses-6.4.tar.gz"
+)
+
+pkg_sha256=(
+    "602067d264ed1b18864e8ee290a1e1e1c4d5a2d78d6f767ad3f5c4d0a445ab0d"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --enable-shared \
+        --with-shared \
+        --with-normal \
+        --with-debug \
+        --with-pkg-config-libdir=/usr/lib/pkgconfig \
+        --enable-pc-files \
+        --with-pcre2
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Create pkg-config file
+    mkdir -p "${PKG_INSTALL_DIR}/usr/lib/pkgconfig"
+    cat > "${PKG_INSTALL_DIR}/usr/lib/pkgconfig/ncursesw.pc" << EOF
+prefix=/usr
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: ncursesw
+Description: ncurses library (wide-character support)
+Version: ${pkg_version}
+Libs: -L\${libdir} -lncursesw
+Cflags: -I\${includedir}
+EOF
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}

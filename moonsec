@@ -1,0 +1,1705 @@
+#!/bin/bash
+# MOONSEC - Moon OS Security System
+# Comprehensive security architecture for Moon OS
+
+set -euo pipefail
+
+MOON_SEC_VERSION="1.0.0"
+MOON_SEC_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+log_sec() { echo -e "${CYAN}[SEC]${NC} $1"; }
+
+# ============================================================================
+# Security Configuration
+# ============================================================================
+MOON_SEC_CONFIG="/etc/moonsec"
+MOON_SEC_POLICIES="${MOON_SEC_CONFIG}/policies"
+MOON_SEC_PROFILES="${MOON_SEC_CONFIG}/profiles"
+MOON_SEC_AUDIT="${MOON_SEC_CONFIG}/audit"
+MOON_SEC_KEYS="/etc/moonsec/keys"
+
+# Create security directories
+init_security() {
+    log_step "Initializing security system..."
+    
+    sudo mkdir -p "${MOON_SEC_CONFIG}"
+    sudo mkdir -p "${MOON_SEC_POLICIES}"
+    sudo mkdir -p "${MOON_SEC_PROFILES}"
+    sudo mkdir -p "${MOON_SEC_AUDIT}"
+    sudo mkdir -p "${MOON_SEC_KEYS}"
+    sudo mkdir -p "${MOON_SEC_KEYS}/packager"
+    sudo mkdir -p "${MOON_SEC_KEYS}/signing"
+    
+    # Set permissions
+    sudo chmod 700 "${MOON_SEC_CONFIG}"
+    sudo chmod 700 "${MOON_SEC_KEYS}"
+    sudo chmod 600 "${MOON_SEC_AUDIT}"/*
+    
+    log_info "Security system initialized"
+}
+
+# ============================================================================
+# Mandatory Access Control (MAC)
+# ============================================================================
+
+# AppArmor Configuration
+setup_apparmor() {
+    log_step "Setting up AppArmor..."
+    
+    # Install AppArmor
+    sudo pacman -S --needed --noconfirm \
+        apparmor \
+        apparmor-utils \
+        apparmor-profiles \
+        apparmor-tools \
+        2>/dev/null || true
+    
+    # Enable AppArmor service
+    sudo systemctl enable apparmor
+    
+    # Configure AppArmor
+    sudo mkdir -p /etc/apparmor.d
+    
+    # Create base profiles
+    create_apparmor_profiles
+    
+    # Set AppArmor to enforce mode
+    sudo aa-enforce /etc/apparmor.d/* 2>/dev/null || true
+    
+    log_info "AppArmor configured"
+}
+
+# Create AppArmor profiles for gaming applications
+create_apparmor_profiles() {
+    log_info "Creating AppArmor profiles..."
+    
+    # Steam profile
+    sudo cat > /etc/apparmor.d/usr.bin.steam << 'EOF'
+#include <tunables/global>
+
+profile steam /usr/bin/steam {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/ssl_certs>
+  #include <abstractions/gnome>
+  
+  # Allow Steam directories
+  owner @{HOME}/.steam/** rwk,
+  owner @{HOME}/.local/share/Steam/** rwk,
+  /tmp/** rwk,
+  /dev/shm/** rwk,
+  
+  # Allow GPU access
+  /dev/dri/** rw,
+  /sys/devices/pci*/** r,
+  
+  # Allow network access
+  network inet stream,
+  network inet dgram,
+  network inet6 stream,
+  network inet6 dgram,
+  
+  # Allow audio
+  /dev/snd/** rw,
+  /dev/audio rw,
+  /proc/asound/** r,
+  
+  # Allow input devices
+  /dev/input/** rw,
+  /dev/uhid rw,
+  
+  # Allow X11
+  /tmp/.X11-unix/* rw,
+  unix (send, receive) peer=(label=unconfined),
+  
+  # Allow Wayland
+  owner /run/user/*/wayland-* rw,
+  
+  # Deny dangerous operations
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny ptrace,
+  deny /proc/sys/** w,
+  deny /sys/firmware/** w,
+}
+EOF
+    
+    # Proton profile
+    sudo cat > /etc/apparmor.d/usr.bin.proton << 'EOF'
+#include <tunables/global>
+
+profile proton /opt/proton/* {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  
+  # Allow Wine/Proton directories
+  owner @{HOME}/.steam/** rwk,
+  owner @{HOME}/.wine/** rwk,
+  owner @{HOME}/.local/share/Steam/steamapps/common/** rwk,
+  /tmp/** rwk,
+  /dev/shm/** rwk,
+  
+  # Allow GPU access
+  /dev/dri/** rw,
+  
+  # Allow network access
+  network inet stream,
+  network inet dgram,
+  network inet6 stream,
+  network inet6 dgram,
+  
+  # Allow audio
+  /dev/snd/** rw,
+  
+  # Allow input
+  /dev/input/** rw,
+  
+  # Deny dangerous operations
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny ptrace,
+}
+EOF
+    
+    # Gamescope profile
+    sudo cat > /etc/apparmor.d/usr.bin.gamescope << 'EOF'
+#include <tunables/global>
+
+profile gamescope /usr/bin/gamescope {
+  #include <abstractions/base>
+  
+  # Allow GPU/display access
+  /dev/dri/** rw,
+  /dev/input/** rw,
+  /tmp/.X11-unix/* rw,
+  owner /run/user/*/wayland-* rw,
+  owner /run/user/*/gamescope-* rw,
+  
+  # Allow shared memory
+  /dev/shm/** rw,
+  /tmp/** rwk,
+  
+  # Allow network (for streaming)
+  network inet stream,
+  network inet dgram,
+  
+  # Deny dangerous operations
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny ptrace,
+}
+EOF
+    
+    # GameMode profile
+    sudo cat > /etc/apparmor.d/usr.sbin.gamemoded << 'EOF'
+#include <tunables/global>
+
+profile gamemoded /usr/sbin/gamemoded {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  
+  # Allow reading system information
+  /proc/cpuinfo r,
+  /proc/stat r,
+  /proc/meminfo r,
+  /sys/devices/system/cpu/** r,
+  
+  # Allow setting CPU governor
+  /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor w,
+  /sys/devices/system/cpu/cpu*/cpufreq/scaling_min_freq w,
+  /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq w,
+  
+  # Allow I/O priority
+  /proc/*/io r,
+  
+  # Allow nice values
+  capability sys_nice,
+  
+  # Allow network
+  network inet stream,
+  network inet dgram,
+  
+  # Deny dangerous operations
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny ptrace,
+  deny /sys/firmware/** w,
+}
+EOF
+    
+    # MangoHud profile
+    sudo cat > /etc/apparmor.d/usr.bin.mangohud << 'EOF'
+#include <tunables/global>
+
+profile mangohud /usr/bin/mangohud {
+  #include <abstractions/base>
+  
+  # Allow GPU information
+  /sys/class/drm/** r,
+  /dev/dri/** r,
+  /proc/driver/nvidia/** r,
+  
+  # Allow CPU information
+  /proc/cpuinfo r,
+  /proc/stat r,
+  /sys/devices/system/cpu/** r,
+  
+  # Allow memory information
+  /proc/meminfo r,
+  /proc/*/status r,
+  
+  # Allow overlay display
+  /dev/shm/** rw,
+  /tmp/** rw,
+  
+  # Deny dangerous operations
+  deny mount,
+  deny umount,
+  deny pivot_root,
+  deny ptrace,
+  deny /sys/firmware/** w,
+}
+EOF
+    
+    log_info "AppArmor profiles created"
+}
+
+# ============================================================================
+# SELinux Configuration (Alternative)
+# ============================================================================
+setup_selinux() {
+    log_step "Setting up SELinux (alternative to AppArmor)..."
+    
+    # Install SELinux
+    sudo pacman -S --needed --noconfirm \
+        selinux \
+        selinux-utils \
+        libselinux \
+        libsepol \
+        policycoreutils \
+        2>/dev/null || true
+    
+    # Configure SELinux
+    sudo sed -i 's/SELINUX=disabled/SELINUX=enforcing/' /etc/selinux/config 2>/dev/null || true
+    
+    log_info "SELinux configured"
+}
+
+# ============================================================================
+# Disk Encryption (LUKS2)
+# ============================================================================
+setup_disk_encryption() {
+    log_step "Setting up disk encryption..."
+    
+    # Install LUKS tools
+    sudo pacman -S --needed --noconfirm \
+        cryptsetup \
+        cryptsetup-nuke-keys \
+        2>/dev/null || true
+    
+    log_info "Disk encryption tools installed"
+}
+
+# Encrypt partition
+encrypt_partition() {
+    local device="$1"
+    local passphrase="$2"
+    
+    log_info "Encrypting partition: $device"
+    
+    # Create LUKS2 partition
+    echo -n "$passphrase" | sudo cryptsetup luksFormat \
+        --type luks2 \
+        --cipher aes-xts-plain64 \
+        --key-size 512 \
+        --hash sha512 \
+        --iter-time 5000 \
+        --verify-passphrase \
+        "$device" -
+    
+    # Open encrypted partition
+    echo -n "$passphrase" | sudo cryptsetup open "$device" moonos-encrypted -
+    
+    # Create filesystem
+    sudo mkfs.ext4 -L "moonos" /dev/mapper/moonos-encrypted
+    
+    log_info "Partition encrypted successfully"
+}
+
+# ============================================================================
+# TPM Support
+# ============================================================================
+setup_tpm() {
+    log_step "Setting up TPM support..."
+    
+    # Install TPM tools
+    sudo pacman -S --needed --noconfirm \
+        tpm2-tss \
+        tpm2-tools \
+        tpm2-abrmd \
+        2>/dev/null || true
+    
+    # Enable TPM services
+    sudo systemctl enable tpm2-abrmd 2>/dev/null || true
+    
+    # Create TPM configuration
+    sudo mkdir -p /etc/tpm2
+    
+    # Configure automatic LUKS unlock with TPM
+    sudo cat > /etc/tpm2/tpm2-unlock.conf << 'EOF'
+# Moon OS TPM Unlock Configuration
+# Automatically unlock LUKS with TPM
+
+# Enable TPM-based unlock
+ENABLE_TPM_UNLOCK=true
+
+# TPM device
+TPM_DEVICE=/dev/tpm0
+
+# PCR banks to seal against
+PCR_BANKS=sha256
+
+# PCR selections (secure boot, boot loader, kernel)
+PCR_SELECTIONS=0,1,2,3,4,5,7
+
+# Auto-unlock delay (seconds)
+UNLOCK_DELAY=5
+EOF
+    
+    log_info "TPM support configured"
+}
+
+# Seal LUKS key to TPM
+seal_key_to_tpm() {
+    local device="$1"
+    
+    log_info "Sealing LUKS key to TPM..."
+    
+    # Get LUKS UUID
+    local uuid=$(sudo cryptsetup luksUUID "$device")
+    
+    # Create TPM PCR policy
+    sudo systemd-cryptenroll \
+        --tpm2-device=auto \
+        --tpm2-pcrs=0+1+2+3+4+5+7 \
+        "$device"
+    
+    log_info "Key sealed to TPM"
+}
+
+# ============================================================================
+# Secure Boot
+# ============================================================================
+setup_secure_boot() {
+    log_step "Setting up Secure Boot..."
+    
+    # Install Secure Boot tools
+    sudo pacman -S --needed --noconfirm \
+        shim \
+        sbsigntools \
+        secureboot-hook \
+        2>/dev/null || true
+    
+    # Create Secure Boot configuration
+    sudo mkdir -p /etc/secureboot
+    
+    # Generate Secure Boot keys
+    generate_secureboot_keys
+    
+    # Sign bootloader
+    sign_bootloader
+    
+    # Sign kernel
+    sign_kernel
+    
+    log_info "Secure Boot configured"
+}
+
+# Generate Secure Boot keys
+generate_secureboot_keys() {
+    log_info "Generating Secure Boot keys..."
+    
+    local keydir="/etc/secureboot/keys"
+    sudo mkdir -p "$keydir"
+    
+    # Generate Platform Key (PK)
+    sudo openssl req -new -x509 \
+        -newkey rsa:4096 \
+        -keyout "$keydir/PK.key" \
+        -out "$keydir/PK.crt" \
+        -days 3650 \
+        -nodes \
+        -subj "/CN=Moon OS Platform Key/"
+    
+    # Generate Key Exchange Key (KEK)
+    sudo openssl req -new -x509 \
+        -newkey rsa:4096 \
+        -keyout "$keydir/KEK.key" \
+        -out "$keydir/KEK.crt" \
+        -days 3650 \
+        -nodes \
+        -subj "/CN=Moon OS Key Exchange Key/"
+    
+    # Generate Signature Database key (db)
+    sudo openssl req -new -x509 \
+        -newkey rsa:4096 \
+        -keyout "$keydir/db.key" \
+        -out "$keydir/db.crt" \
+        -days 3650 \
+        -nodes \
+        -subj "/CN=Moon OS Signature Database/"
+    
+    # Create GUID for keys
+    sudo python3 -c "import uuid; print(uuid.uuid4())" | sudo tee "$keydir/GUID" > /dev/null
+    
+    # Convert to authenticated variables
+    sudo cert-to-efi-sig-list -g "$(cat "$keydir/GUID")" \
+        -k "$keydir/PK.key" \
+        -c "$keydir/PK.crt" \
+        "$keydir/PK.esl"
+    
+    sudo cert-to-efi-sig-list -g "$(cat "$keydir/GUID")" \
+        -k "$keydir/KEK.key" \
+        -c "$keydir/KEK.crt" \
+        "$keydir/KEK.esl"
+    
+    sudo cert-to-efi-sig-list -g "$(cat "$keydir/GUID")" \
+        -k "$keydir/db.key" \
+        -c "$keydir/db.crt" \
+        "$keydir/db.esl"
+    
+    # Sign the authenticated variable lists
+    sudo sign-efi-sig-list -g "$(cat "$keydir/GUID")" \
+        -k "$keydir/PK.key" \
+        -c "$keydir/PK.crt" \
+        PK "$keydir/PK.esl" \
+        "$keydir/PK.auth"
+    
+    sudo sign-efi-sig-list -g "$(cat "$keydir/GUID")" \
+        -k "$keydir/PK.key" \
+        -c "$keydir/PK.crt" \
+        KEK "$keydir/KEK.esl" \
+        "$keydir/KEK.auth"
+    
+    sudo sign-efi-sig-list -g "$(cat "$keydir/GUID")" \
+        -k "$keydir/KEK.key" \
+        -c "$keydir/KEK.crt" \
+        db "$keydir/db.esl" \
+        "$keydir/db.auth"
+    
+    log_info "Secure Boot keys generated"
+}
+
+# Sign bootloader
+sign_bootloader() {
+    log_info "Signing bootloader..."
+    
+    local keydir="/etc/secureboot/keys"
+    
+    # Sign GRUB
+    sudo sbsign \
+        --key "$keydir/db.key" \
+        --cert "$keydir/db.crt" \
+        --output /boot/efi/EFI/moonos/grubx64.efi.signed \
+        /boot/efi/EFI/moonos/grubx64.efi
+    
+    # Replace unsigned with signed
+    sudo mv /boot/efi/EFI/moonos/grubx64.efi.signed \
+        /boot/efi/EFI/moonos/grubx64.efi
+    
+    log_info "Bootloader signed"
+}
+
+# Sign kernel
+sign_kernel() {
+    log_info "Signing kernel..."
+    
+    local keydir="/etc/secureboot/keys"
+    local kernel="/boot/vmlinuz-linux"
+    
+    # Sign kernel
+    sudo sbsign \
+        --key "$keydir/db.key" \
+        --cert "$keydir/db.crt" \
+        --output "${kernel}.signed" \
+        "$kernel"
+    
+    # Replace unsigned with signed
+    sudo mv "${kernel}.signed" "$kernel"
+    
+    log_info "Kernel signed"
+}
+
+# ============================================================================
+# Firewall
+# ============================================================================
+setup_firewall() {
+    log_step "Setting up firewall..."
+    
+    # Install firewall
+    sudo pacman -S --needed --noconfirm \
+        nftables \
+        2>/dev/null || true
+    
+    # Create firewall rules
+    create_firewall_rules
+    
+    # Enable firewall
+    sudo systemctl enable nftables
+    
+    log_info "Firewall configured"
+}
+
+# Create comprehensive firewall rules
+create_firewall_rules() {
+    log_info "Creating firewall rules..."
+    
+    sudo cat > /etc/nftables.conf << 'EOF'
+#!/usr/sbin/nft -f
+
+# Moon OS Firewall Configuration
+# Gaming-optimized with security hardening
+
+flush ruleset
+
+# Define variables
+define LAN_IF = en*
+define WAN_IF = en*
+define WIRELESS_IF = wl*
+define VPN_IF = tun*
+define GAMESERVER_PORTS = 27015-27050,3478-4380,27000-27100,1935,3478-3479,3480
+define VPN_PORTS = 500,4500
+define SSH_PORT = 22
+
+# Create tables
+table inet filter {
+    # Input chain
+    chain input {
+        type filter hook input priority filter; policy drop;
+        
+        # Allow established/related connections
+        ct state established,related accept
+        
+        # Drop invalid connections
+        ct state invalid drop
+        
+        # Allow loopback
+        iif "lo" accept
+        
+        # Allow ICMP (rate limited)
+        ip protocol icmp limit rate 4/second accept
+        ip6 nexthdr icmpv6 limit rate 4/second accept
+        
+        # Allow SSH (rate limited)
+        tcp dport $SSH_PORT ct state new limit rate 3/minute accept
+        
+        # Allow gaming ports
+        tcp dport $GAMESERVER_PORTS accept
+        udp dport $GAMESERVER_PORTS accept
+        
+        # Allow VPN
+        udp dport $VPN_PORTS accept
+        iifname $VPN_IF accept
+        
+        # Allow local network
+        iifname $LAN_IF ip saddr 192.168.0.0/16 accept
+        iifname $LAN_IF ip saddr 10.0.0.0/8 accept
+        iifname $LAN_IF ip saddr 172.16.0.0/12 accept
+        
+        # Allow mDNS (local network discovery)
+        udp dport 5353 accept
+        
+        # Log and drop everything else
+        log prefix "[nft-drop] " limit rate 5/minute drop
+    }
+    
+    # Forward chain
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        
+        # Allow established/related
+        ct state established,related accept
+        
+        # Drop invalid
+        ct state invalid drop
+        
+        # Allow VPN forwarding
+        iifname $VPN_IF accept
+        oifname $VPN_IF accept
+        
+        # Allow Docker/containers
+        iifname docker0 accept
+        oifname docker0 accept
+        iifname br-* accept
+        oifname br-* accept
+    }
+    
+    # Output chain
+    chain output {
+        type filter hook output priority filter; policy accept;
+        
+        # Allow all outgoing (restrict in privacy section)
+        accept
+    }
+}
+
+# NAT table for VPN/Docker
+table ip nat {
+    chain postrouting {
+        type nat hook postrouting priority srcnat;
+        
+        # Masquerade VPN traffic
+        oifname $VPN_IF masquerade
+        
+        # Masquerade Docker traffic
+        oifname docker0 masquerade
+        oifname br-* masquerade
+    }
+}
+
+# Connection tracking
+table inet ct {
+    chain new {
+        type filter hook output priority -100; policy accept;
+        
+        # Track new connections
+        ct state new accept
+    }
+}
+EOF
+    
+    log_info "Firewall rules created"
+}
+
+# ============================================================================
+# Network Security
+# ============================================================================
+setup_network_security() {
+    log_step "Setting up network security..."
+    
+    # Enable kernel network security
+    sudo cat > /etc/sysctl.d/99-network-security.conf << 'EOF'
+# Moon OS Network Security Hardening
+
+# Disable IP forwarding (unless VPN/Docker)
+net.ipv4.ip_forward=0
+net.ipv6.conf.all.forwarding=0
+
+# Disable ICMP redirects
+net.ipv4.conf.all.accept_redirects=0
+net.ipv4.conf.default.accept_redirects=0
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+net.ipv6.conf.all.accept_redirects=0
+net.ipv6.conf.default.accept_redirects=0
+
+# Disable source routing
+net.ipv4.conf.all.accept_source_route=0
+net.ipv4.conf.default.accept_source_route=0
+net.ipv6.conf.all.accept_source_route=0
+net.ipv6.conf.default.accept_source_route=0
+
+# Enable SYN flood protection
+net.ipv4.tcp_syncookies=1
+net.ipv4.tcp_max_syn_backlog=4096
+net.ipv4.tcp_synack_retries=2
+net.ipv4.tcp_syn_retries=5
+
+# Enable reverse path filtering
+net.ipv4.conf.all.rp_filter=1
+net.ipv4.conf.default.rp_filter=1
+
+# Log Martian packets
+net.ipv4.conf.all.log_martians=1
+net.ipv4.conf.default.log_martians=1
+
+# Disable ICMP broadcast replies
+net.ipv4.icmp_echo_ignore_broadcasts=1
+
+# Ignore bogus ICMP errors
+net.ipv4.icmp_ignore_bogus_error_responses=1
+
+# Enable TCP timestamps (for security)
+net.ipv4.tcp_timestamps=1
+
+# Enable TCP SACK
+net.ipv4.tcp_sack=1
+
+# Disable IPv6 if not needed
+# net.ipv6.conf.all.disable_ipv6=1
+# net.ipv6.conf.default.disable_ipv6=1
+
+# Randomize address space layout
+kernel.randomize_va_space=2
+
+# Restrict dmesg access
+kernel.dmesg_restrict=1
+
+# Restrict kernel pointer access
+kernel.kptr_restrict=2
+
+# Restrict perf events
+kernel.perf_event_paranoid=3
+
+# Restrict unprivileged user namespaces
+kernel.unprivileged_userns_clone=0
+
+# Disable BPF for unprivileged users
+kernel.unprivileged_bpf_disabled=1
+
+# Harden BPF JIT
+net.core.bpf_jit_harden=2
+EOF
+    
+    log_info "Network security configured"
+}
+
+# ============================================================================
+# MAC Randomization
+# ============================================================================
+setup_mac_randomization() {
+    log_step "Setting up MAC address randomization..."
+    
+    # Create NetworkManager configuration
+    sudo mkdir -p /etc/NetworkManager/conf.d
+    
+    sudo cat > /etc/NetworkManager/conf.d/99-random-mac.conf << 'EOF'
+[device]
+wifi.scan-rand-mac-address=yes
+ethernet.cloned-mac-address=random
+wifi.cloned-mac-address=random
+
+[connection]
+wifi.cloned-mac-address=permanent
+ethernet.cloned-mac-address=permanent
+EOF
+    
+    # Create systemd-networkd configuration (alternative)
+    sudo mkdir -p /etc/systemd/network
+    
+    sudo cat > /etc/systemd/network/99-random-mac.link << 'EOF'
+[Match]
+MACAddress=
+
+[Link]
+MACAddress=random
+EOF
+    
+    log_info "MAC randomization configured"
+}
+
+# ============================================================================
+# Secure DNS
+# ============================================================================
+setup_secure_dns() {
+    log_step "Setting up secure DNS..."
+    
+    # Install DNS over TLS/HTTPS
+    sudo pacman -S --needed --noconfirm \
+        systemd-resolved \
+        2>/dev/null || true
+    
+    # Enable systemd-resolved
+    sudo systemctl enable systemd-resolved
+    
+    # Configure secure DNS
+    sudo cat > /etc/systemd/resolved.conf << 'EOF'
+[Resolve]
+# Moon OS Secure DNS Configuration
+
+# DNS servers with DNSSEC support
+DNS=1.1.1.1#cloudflare-dns.com 9.9.9.9#dns.quad9.net 8.8.8.8#dns.google
+FallbackDNS=1.0.0.1#cloudflare-dns.com 149.112.112.112#dns.quad9.net
+
+# Enable DNSSEC
+DNSSEC=yes
+
+# Enable DNS over TLS
+DNSOverTLS=yes
+
+# DNS cache size
+CacheSize=10000
+
+# Enable additional DNS features
+MulticastDNS=yes
+LLMNR=yes
+ResolveUnicastSingleLabel=yes
+EOF
+    
+    # Create DNSSEC trust anchor
+    sudo mkdir -p /etc/dnssec-trust-anchors.d
+    
+    # Configure DNSSEC negative trust anchors
+    sudo cat > /etc/dnssec-trust-anchors.d/negative.ans \
+        > /dev/null 2>&1 || true
+    
+    log_info "Secure DNS configured"
+}
+
+# ============================================================================
+# Privacy System
+# ============================================================================
+setup_privacy() {
+    log_step "Setting up privacy system..."
+    
+    # Disable telemetry
+    disable_telemetry
+    
+    # Disable tracking
+    disable_tracking
+    
+    # Configure privacy
+    configure_privacy
+    
+    # Setup secure deletion
+    setup_secure_deletion
+    
+    log_info "Privacy system configured"
+}
+
+# Disable telemetry
+disable_telemetry() {
+    log_info "Disabling telemetry..."
+    
+    # Disable systemd telemetry
+    sudo mkdir -p /etc/systemd/system.conf.d
+    sudo cat > /etc/systemd/system.conf.d/telemetry.conf << 'EOF'
+[Manager]
+# Disable telemetry
+LogTarget=journal
+    
+[Service]
+ExecStart=
+ExecStart=/usr/lib/systemd/systemd --no-pager
+EOF
+    
+    # Disable GNOME telemetry
+    sudo mkdir -p /etc/dconf/db/local.d
+    sudo cat > /etc/dconf/db/local.d/privacy << 'EOF'
+[org/gnome/desktop/privacy]
+send-software-usage-stats=false
+report-technical-problems=false
+EOF
+    
+    # Disable KDE telemetry
+    sudo mkdir -p /etc/xdg/autostart
+    sudo cat > /etc/xdg/autostart/disable-telemetry.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Disable Telemetry
+Exec=/bin/sh -c 'kwriteconfig5 --file kdeglobals --group "KDE" --key "DisableTelemetry" "true"'
+Terminal=false
+EOF
+    
+    # Disable macOS-like tracking
+    sudo cat > /etc/sysctl.d/99-privacy.conf << 'EOF'
+# Moon OS Privacy Hardening
+
+# Disable core dumps
+fs.suid_dumpable=0
+
+# Restrict kernel pointer access
+kernel.kptr_restrict=2
+
+# Restrict dmesg access
+kernel.dmesg_restrict=1
+
+# Disable SysRq
+kernel.sysrq=0
+
+# Disable NMI watchdog
+kernel.nmi_watchdog=0
+
+# Restrict perf events
+kernel.perf_event_paranoid=3
+
+# Disable unprivileged user namespaces
+kernel.unprivileged_userns_clone=0
+EOF
+    
+    log_info "Telemetry disabled"
+}
+
+# Disable tracking
+disable_tracking() {
+    log_info "Disabling tracking..."
+    
+    # Disable browser tracking
+    sudo mkdir -p /etc/firefox/policies
+    sudo cat > /etc/firefox/policies/policies.json << 'EOF'
+{
+  "policies": {
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisableDefaultBrowserAgent": true,
+    "DisableFeedbackCommands": true,
+    "DisableFirefoxAccounts": false,
+    "DisableFormHistory": false,
+    "DisablePocket": true,
+    "DisableSetDesktopBackground": false,
+    "DisableSystemAddonUpdate": false,
+    "DisableTelemetry": true,
+    "DisableFirefoxScreenshots": false,
+    "OverrideFirstRunPage": "",
+    "OfferToSaveLogins": true,
+    "PasswordManagerEnabled": true,
+    "FirefoxHome": {
+      "Search": true,
+      "TopSites": false,
+      "SponsoredTopSites": false,
+      "Highlights": false,
+      "Pocket": false,
+      "SponsoredPocket": false,
+      "Snippets": false,
+      "Locked": false
+    },
+    "UserMessaging": {
+      "Experiments": false,
+      "ExtensionRecommendations": false,
+      "FeatureRecommendations": false,
+      "UrlbarInterventions": false,
+      "SkipOnboarding": false,
+      "MoreFromMozilla": false,
+      "FirefoxLabs": false
+    }
+  }
+}
+EOF
+    
+    # Disable Chromium tracking
+    sudo mkdir -p /etc/chromium/policies/managed
+    sudo cat > /etc/chromium/policies/managed/privacy.json << 'EOF'
+{
+  "MetricsReportingEnabled": false,
+  "SpellCheckServiceDisabled": true,
+  "MetricsReportingEnabled": false,
+  "CloudPrintSubmitEnabled": false,
+  "DefaultBrowserSettingEnabled": false,
+  "ShowHomeButton": true,
+  "PasswordManagerEnabled": true,
+  "SpellcheckEnabled": true,
+  "SpellcheckBrowserEnabled": true,
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "SavingBrowserHistoryDisabled": false,
+  "ImportAutofillFormData": false,
+  "DefaultCookiesSetting": 1,
+  "DefaultJavaScriptSetting": 1,
+  "DefaultPopupsSetting": 1,
+  "DefaultNotificationsSetting": 2,
+  "DefaultGeolocationSetting": 2,
+  "DefaultWebBluetoothGuardSetting": 2,
+  "DefaultWebUsbGuardSetting": 2,
+  "DefaultWebHidGuardSetting": 2,
+  "DefaultWebSerialGuardSetting": 2,
+  "DefaultFileHandlingGuardSetting": 2,
+  "DefaultFileSystemHandleGuardSetting": 2,
+  "DefaultWindowPlacementGuardSetting": 2,
+  "DefaultClipboardGuardSetting": 2,
+  "DefaultPrintingGuardSetting": 2,
+  "DefaultProtocolHandlerGuardSetting": 2,
+  "DefaultWebUsbGuardSetting": 2
+}
+EOF
+    
+    log_info "Tracking disabled"
+}
+
+# Configure privacy
+configure_privacy() {
+    log_info "Configuring privacy settings..."
+    
+    # Create privacy configuration
+    sudo mkdir -p /etc/moonsec/privacy
+    
+    sudo cat > /etc/moonsec/privacy/privacy.conf << 'EOF'
+# Moon OS Privacy Configuration
+
+# Disable all telemetry
+DISABLE_TELEMETRY=true
+
+# Disable all tracking
+DISABLE_TRACKING=true
+
+# Disable all analytics
+DISABLE_ANALYTICS=true
+
+# Disable crash reporting
+DISABLE_CRASH_REPORTING=true
+
+# Disable usage statistics
+DISABLE_USAGE_STATS=true
+
+# Disable data collection
+DISABLE_DATA_COLLECTION=true
+
+# Enable secure deletion
+ENABLE_SECURE_DEletion=true
+
+# Enable memory encryption
+ENABLE_MEMORY_ENCRYPTION=true
+
+# Enable swap encryption
+ENABLE_SWAP_ENCRYPTION=true
+
+# Enable temporary file encryption
+ENABLE_TMP_ENCRYPTION=true
+EOF
+    
+    log_info "Privacy configured"
+}
+
+# Setup secure deletion
+setup_secure_deletion() {
+    log_info "Setting up secure deletion..."
+    
+    # Install secure deletion tools
+    sudo pacman -S --needed --noconfirm \
+        secure-delete \
+        2>/dev/null || true
+    
+    # Create secure deletion script
+    sudo cat > /usr/local/bin/secure-delete << 'SCRIPT'
+#!/bin/bash
+# Moon OS Secure Deletion Script
+
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: $0 <file|directory>"
+    exit 1
+fi
+
+for item in "$@"; do
+    if [[ -f "$item" ]]; then
+        echo "Securely deleting file: $item"
+        srm -vz "$item"
+    elif [[ -d "$item" ]]; then
+        echo "Securely deleting directory: $item"
+        srm -vrz "$item"
+    else
+        echo "Not found: $item"
+    fi
+done
+SCRIPT
+    sudo chmod +x /usr/local/bin/secure-delete
+    
+    log_info "Secure deletion configured"
+}
+
+# ============================================================================
+# Package Verification
+# ============================================================================
+setup_package_verification() {
+    log_step "Setting up package verification..."
+    
+    # Generate package signing keys
+    generate_package_keys
+    
+    # Configure package verification
+    configure_package_verification
+    
+    log_info "Package verification configured"
+}
+
+# Generate package signing keys
+generate_package_keys() {
+    log_info "Generating package signing keys..."
+    
+    # Generate GPG key for Moon OS packages
+    gpg --batch --gen-key << EOF
+%echo Generating Moon OS package signing key
+Key-Type: RSA
+Key-Length: 4096
+Subkey-Type: RSA
+Subkey-Length: 4096
+Name-Real: Moon OS Package Signing
+Name-Email: packages@moonos.dev
+Expire-Date: 0
+%no-protection
+%commit
+%echo Done
+EOF
+    
+    # Export public key
+    gpg --export --armor packages@moonos.dev | sudo tee /etc/pacman.d/moonos-pubkey.gpg > /dev/null
+    
+    log_info "Package signing keys generated"
+}
+
+# Configure package verification
+configure_package_verification() {
+    log_info "Configuring package verification..."
+    
+    # Configure pacman for signature verification
+    sudo cat > /etc/pacman.d/moonos-pacman.conf << 'EOF'
+[options]
+# Moon OS Package Configuration
+
+# Verify package signatures
+SigLevel = Required DatabaseOptional
+
+# Use local keyring
+GPGDir = /etc/pacman.d/gnupg/
+
+# Package cache
+CacheDir = /var/cache/pacman/pkg/
+CacheReclaimDirs = 10%
+
+# Clean up after install
+CleanMethod = KeepCurrent
+
+# Parallel downloads
+ParallelDownloads = 5
+
+# Enable colors
+Color
+
+# Show verbose package lists
+VerbosePkgLists
+
+# Use short package names
+DisableSandbox
+
+# Enable multilib
+[multilib]
+Include = /etc/pacman.d/mirrorlist
+EOF
+    
+    log_info "Package verification configured"
+}
+
+# ============================================================================
+# Application Sandboxing
+# ============================================================================
+setup_sandboxing() {
+    log_step "Setting up application sandboxing..."
+    
+    # Install sandboxing tools
+    sudo pacman -S --needed --noconfirm \
+        firejail \
+        bubblewrap \
+        flatpak \
+        2>/dev/null || true
+    
+    # Configure Firejail
+    configure_firejail
+    
+    # Configure Flatpak sandboxing
+    configure_flatpak_sandboxing
+    
+    log_info "Application sandboxing configured"
+}
+
+# Configure Firejail
+configure_firejail() {
+    log_info "Configuring Firejail..."
+    
+    # Create Firejail configuration
+    sudo mkdir -p /etc/firejail
+    
+    # Gaming profile
+    sudo cat > /etc/firejail/gaming.profile << 'EOF'
+# Moon OS Gaming Sandbox Profile
+
+# Basic sandboxing
+ignore nodvd
+ignore novideo
+ignore noaudio
+ignore nosound
+ignore no3d
+
+# Allow GPU access
+nodvd
+ignore nogpu
+
+# Allow network
+net
+
+# Allow shared memory
+shmem
+
+# Allow X11
+x11
+
+# Allow Wayland
+wayland
+
+# Allow PulseAudio
+pulseaudio
+
+# Allow ALSA
+alsa
+
+# Allow OpenGL
+ignore noapparmor
+
+# Allow input devices
+ignore noudev
+
+# Allow /tmp
+ignore notmp
+
+# Allow /dev/shm
+ignore novashm
+
+# Allow home directory
+home
+
+# Allow downloads
+whitelist ~/Downloads
+whitelist ~/.local/share/Steam
+whitelist ~/.steam
+
+# Deny dangerous operations
+disable-mnt
+private-dev
+private-tmp
+noexec /tmp
+noexec /var/tmp
+nosound
+nodvd
+novideo
+ignore novideo
+EOF
+    
+    # Steam profile
+    sudo cat > /etc/firejail/steam.profile << 'EOF'
+# Moon OS Steam Sandbox Profile
+
+# Include gaming profile
+include /etc/firejail/gaming.profile
+
+# Steam-specific
+whitelist ~/.steam
+whitelist ~/.local/share/Steam
+whitelist ~/Games
+whitelist ~/.config/unity3d
+whitelist ~/.config/MangoHud
+whitelist ~/.config/gamescope
+
+# Allow Steam runtime
+ignore seccomp
+ignore apparmor
+EOF
+    
+    # Wine profile
+    sudo cat > /etc/firejail/wine.profile << 'EOF'
+# Moon OS Wine Sandbox Profile
+
+# Basic sandboxing
+include /etc/firejail/gaming.profile
+
+# Wine-specific
+whitelist ~/.wine
+whitelist ~/.local/share/wineprefixes
+whitelist ~/Games
+
+# Allow Windows programs
+ignore seccomp
+ignore apparmor
+EOF
+    
+    log_info "Firejail configured"
+}
+
+# Configure Flatpak sandboxing
+configure_flatpak_sandboxing() {
+    log_info "Configuring Flatpak sandboxing..."
+    
+    # Create Flatpak permissions
+    sudo cat > /etc/flatpak/permissions.conf << 'EOF'
+[Context]
+filesystems=home;xdg-download;xdg-data/Steam;xdg-config/MangoHud;xdg-config/gamescope;
+sockets=x11;wayland;pulseaudio;
+devices=dri;input;
+features=devel;multilib;
+EOF
+    
+    log_info "Flatpak sandboxing configured"
+}
+
+# ============================================================================
+# Recovery System
+# ============================================================================
+setup_recovery() {
+    log_step "Setting up recovery system..."
+    
+    # Install recovery tools
+    sudo pacman -S --needed --noconfirm \
+        btrfs-progs \
+        timeshift \
+        snapper \
+        2>/dev/null || true
+    
+    # Configure recovery partition
+    configure_recovery_partition
+    
+    # Configure snapshots
+    configure_snapshots
+    
+    # Configure automatic backup
+    configure_backup
+    
+    log_info "Recovery system configured"
+}
+
+# Configure recovery partition
+configure_recovery_partition() {
+    log_info "Configuring recovery partition..."
+    
+    # Create recovery configuration
+    sudo mkdir -p /etc/recovery
+    
+    sudo cat > /etc/recovery/recovery.conf << 'EOF'
+# Moon OS Recovery Configuration
+
+# Enable read-only recovery partition
+READ_ONLY_RECOVERY=true
+
+# Recovery partition device
+RECOVERY_DEVICE=/dev/mapper/moonos-recovery
+
+# Recovery mount point
+RECOVERY_MOUNT=/recovery
+
+# Enable snapshot rollback
+ENABLE_SNAPSHOT_ROLLBACK=true
+
+# Enable automatic backup
+ENABLE_AUTOMATIC_BACKUP=true
+
+# Backup schedule (daily, weekly, monthly)
+BACKUP_SCHEDULE=daily
+
+# Keep number of backups
+BACKUP_KEEP=7
+
+# Enable recovery environment
+ENABLE_RECOVERY_ENV=true
+
+# Recovery kernel parameters
+RECOVERY_KERNEL_PARAMS="root=/dev/mapper/moonos-recovery ro"
+EOF
+    
+    log_info "Recovery partition configured"
+}
+
+# Configure snapshots
+configure_snapshots() {
+    log_info "Configuring filesystem snapshots..."
+    
+    # Create Btrfs snapshot configuration
+    sudo mkdir -p /etc/snapper
+    
+    sudo cat > /etc/snapper/configs/root << 'EOF'
+# Moon OS Snapshot Configuration
+
+SUBVOLUME="/"
+FSTYPE="btrfs"
+
+# Snapshot cleanup
+TIMELINE_MIN_AGE="1800"
+TIMELINE_LIMIT_HOURLY="5"
+TIMELINE_LIMIT_DAILY="7"
+TIMELINE_LIMIT_WEEKLY="0"
+TIMELINE_LIMIT_MONTHLY="0"
+TIMELINE_LIMIT_YEARLY="0"
+
+# Snapshot cleanup algorithm
+TIMELINE_CLEANUP="yes"
+EOF
+    
+    # Create snapshot script
+    sudo cat > /usr/local/bin/moon-snapshot << 'SCRIPT'
+#!/bin/bash
+# Moon OS Snapshot Script
+
+set -euo pipefail
+
+ACTION="${1:-create}"
+SNAPSHOT_NAME="${2:-moon-$(date +%Y%m%d-%H%M%S)}"
+
+case "$ACTION" in
+    create)
+        echo "Creating snapshot: $SNAPSHOT_NAME"
+        sudo btrfs subvolume snapshot -r / "/$SNAPSHOT_NAME"
+        echo "Snapshot created: /$SNAPSHOT_NAME"
+        ;;
+    list)
+        echo "Available snapshots:"
+        sudo btrfs subvolume list / | grep "moon-"
+        ;;
+    rollback)
+        if [[ -z "${3:-}" ]]; then
+            echo "Usage: $0 rollback <snapshot-name>"
+            exit 1
+        fi
+        echo "Rolling back to: $3"
+        sudo btrfs subvolume delete /
+        sudo btrfs subvolume snapshot "/$3" /
+        echo "Rollback complete. Please reboot."
+        ;;
+    delete)
+        if [[ -z "${3:-}" ]]; then
+            echo "Usage: $0 delete <snapshot-name>"
+            exit 1
+        fi
+        echo "Deleting snapshot: $3"
+        sudo btrfs subvolume delete "/$3"
+        echo "Snapshot deleted"
+        ;;
+    *)
+        echo "Usage: $0 {create|list|rollback|delete} [snapshot-name]"
+        exit 1
+        ;;
+esac
+SCRIPT
+    sudo chmod +x /usr/local/bin/moon-snapshot
+    
+    log_info "Snapshots configured"
+}
+
+# Configure backup
+configure_backup() {
+    log_info "Configuring automatic backup..."
+    
+    # Create backup script
+    sudo cat > /usr/local/bin/moon-backup << 'SCRIPT'
+#!/bin/bash
+# Moon OS Automatic Backup Script
+
+set -euo pipefail
+
+BACKUP_DIR="/var/backups/moonos"
+BACKUP_DATE=$(date +%Y%m%d-%H%M%S)
+BACKUP_NAME="backup-${BACKUP_DATE}"
+
+# Create backup directory
+mkdir -p "$BACKUP_DIR"
+
+# Create backup
+echo "Creating backup: $BACKUP_NAME"
+sudo btrfs subvolume snapshot -r / "${BACKUP_DIR}/${BACKUP_NAME}"
+
+# Compress backup
+echo "Compressing backup..."
+sudo tar czf "${BACKUP_DIR}/${BACKUP_NAME}.tar.gz" -C "${BACKUP_DIR}" "${BACKUP_NAME}"
+
+# Remove uncompressed snapshot
+sudo btrfs subvolume delete "${BACKUP_DIR}/${BACKUP_NAME}"
+
+# Keep only last 7 backups
+cd "$BACKUP_DIR"
+ls -t backup-*.tar.gz | tail -n +8 | xargs rm -f 2>/dev/null || true
+
+echo "Backup complete: ${BACKUP_DIR}/${BACKUP_NAME}.tar.gz"
+SCRIPT
+    sudo chmod +x /usr/local/bin/moon-backup
+    
+    # Create systemd timer for automatic backups
+    sudo cat > /etc/systemd/system/moon-backup.timer << 'EOF'
+[Unit]
+Description=Moon OS Automatic Backup
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    
+    sudo cat > /etc/systemd/system/moon-backup.service << 'EOF'
+[Unit]
+Description=Moon OS Backup Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/moon-backup
+User=root
+EOF
+    
+    sudo systemctl enable moon-backup.timer
+    
+    log_info "Automatic backup configured"
+}
+
+# ============================================================================
+# Encrypted Password Storage
+# ============================================================================
+setup_encrypted_passwords() {
+    log_step "Setting up encrypted password storage..."
+    
+    # Install password tools
+    sudo pacman -S --needed --noconfirm \
+        password-store \
+        gnupg \
+        2>/dev/null || true
+    
+    # Configure pass
+    configure_password_store
+    
+    log_info "Encrypted password storage configured"
+}
+
+# Configure password store
+configure_password_store() {
+    log_info "Configuring password store..."
+    
+    # Create password store configuration
+    mkdir -p ~/.password-store
+    
+    # Initialize password store
+    gpg --gen-key --batch << EOF
+%echo Generating password store key
+Key-Type: RSA
+Key-Length: 4096
+Name-Real: Moon OS Password Store
+Name-Email: passwords@moonos.dev
+Expire-Date: 0
+%no-protection
+%commit
+%echo Done
+EOF
+    
+    # Export key
+    gpg --export --armor passwords@moonos.dev | tee ~/.password-store/.gpg-id > /dev/null
+    
+    log_info "Password store configured"
+}
+
+# ============================================================================
+# Security Audit
+# ============================================================================
+security_audit() {
+    log_step "Running security audit..."
+    
+    # Create audit report
+    local audit_report="/tmp/moon-security-audit.txt"
+    
+    cat > "$audit_report" << 'EOF'
+Moon OS Security Audit Report
+===============================
+Generated: $(date)
+
+1. MAC System
+   - AppArmor: $(systemctl is-active apparmor 2>/dev/null || echo "inactive")
+   - SELinux: $(getenforce 2>/dev/null || echo "not installed")
+
+2. Firewall
+   - nftables: $(systemctl is-active nftables 2>/dev/null || echo "inactive")
+   - Rules loaded: $(sudo nft list ruleset | wc -l)
+
+3. Disk Encryption
+   - LUKS: $(cryptsetup status /dev/mapper/moonos-encrypted 2>/dev/null | head -1 || echo "not configured")
+
+4. TPM
+   - TPM 2.0: $(tpm2_pcrlist 2>/dev/null | head -1 || echo "not available")
+
+5. Secure Boot
+   - Status: $(mokutil --sb-state 2>/dev/null || echo "unknown")
+
+6. Network Security
+   - IP Forward: $(cat /proc/sys/net/ipv4/ip_forward)
+   - ICMP Redirects: $(cat /proc/sys/net/ipv4/conf/all/accept_redirects)
+   - SYN Cookies: $(cat /proc/sys/net/ipv4/tcp_syncookies)
+
+7. Kernel Security
+   - Randomize VA Space: $(cat /proc/sys/kernel/randomize_va_space)
+   - Dmesg Restrict: $(cat /proc/sys/kernel/dmesg_restrict)
+   - Kptr Restrict: $(cat /proc/sys/kernel/kptr_restrict)
+
+8. Privacy
+   - Telemetry: $(grep -r "DISABLE_TELEMETRY" /etc/moonsec/privacy/ 2>/dev/null | head -1 || echo "not configured")
+   - Tracking: $(grep -r "DISABLE_TRACKING" /etc/moonsec/privacy/ 2>/dev/null | head -1 || echo "not configured")
+
+9. Recovery
+   - Snapshots: $(ls /var/backups/moonos/ 2>/dev/null | wc -l)
+   - Backup Timer: $(systemctl is-active moon-backup.timer 2>/dev/null || echo "inactive")
+
+10. Package Verification
+    - SigLevel: $(grep "SigLevel" /etc/pacman.conf | head -1)
+EOF
+    
+    log_info "Security audit complete: $audit_report"
+}
+
+# ============================================================================
+# Main Security Setup
+# ============================================================================
+setup_all_security() {
+    echo "=========================================="
+    echo "  Moon OS Security System"
+    echo "  Version: $MOON_SEC_VERSION"
+    echo "=========================================="
+    echo ""
+    
+    init_security
+    setup_apparmor
+    setup_disk_encryption
+    setup_tpm
+    setup_secure_boot
+    setup_firewall
+    setup_network_security
+    setup_mac_randomization
+    setup_secure_dns
+    setup_privacy
+    setup_package_verification
+    setup_sandboxing
+    setup_recovery
+    setup_encrypted_passwords
+    security_audit
+    
+    echo ""
+    echo "=========================================="
+    echo "  Security Setup Complete!"
+    echo "=========================================="
+    echo ""
+    log_info "All security features configured!"
+    log_info "A security audit has been saved to /tmp/moon-security-audit.txt"
+    log_info "Please reboot your system for all changes to take effect."
+}
+
+# ============================================================================
+# Main
+# ============================================================================
+main() {
+    case "${1:-setup}" in
+        setup)
+            setup_all_security
+            ;;
+        audit)
+            security_audit
+            ;;
+        help|*)
+            echo "Moon OS Security System v${MOON_SEC_VERSION}"
+            echo ""
+            echo "Usage: $0 <command>"
+            echo ""
+            echo "Commands:"
+            echo "  setup     Setup all security features"
+            echo "  audit     Run security audit"
+            echo "  help      Show this help"
+            ;;
+    esac
+}
+
+main "$@"

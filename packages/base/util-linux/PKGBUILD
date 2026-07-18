@@ -1,0 +1,103 @@
+# MoonOS Package: util-linux
+# Miscellaneous system utilities
+
+pkg_name="util-linux"
+pkg_version="2.39.3"
+pkg_release="1"
+pkg_description="Linux utilities for file systems, processes, etc."
+pkg_url="https://github.com/util-linux/util-linux"
+pkg_license="GPL-2.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "ncurses" "zlib")
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://github.com/util-linux/util-linux/releases/download/v2.39.3/util-linux-2.39.3.tar.xz"
+)
+
+pkg_sha256=(
+    "634e6916ad91336791e96e77a8329566aaa7859f681d22887e30e8a4c0d4b261"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --enable-shared \
+        --disable-static \
+        --disable-nls \
+        --disable-login \
+        --disable-sulogin \
+        --disable-su \
+        --disable-runuser \
+        --disable-mount \
+        --disable-umount \
+        --enable-libmount-mount \
+        --disable-libmount-tabedit \
+        --enable-write \
+        --enable-chfn-chsh \
+        --enable-chrt \
+        --enable-col \
+        --enable-colrm \
+        --enable-fallocate \
+        --enable-fdfmt \
+        --enable-findmnt \
+        --enable-hexdump \
+        --enable-kill \
+        --enable-last \
+        --enable-line \
+        --enable-logger \
+        --enable-losetup \
+        --enable-lscpu \
+        --enable-lsfd \
+        --enable-lslocks \
+        --enable-mesg \
+        --enable-more \
+        --enable-mountpoint \
+        --enable-namei \
+        --enable-nsenter \
+        --enable-pivot_root \
+        --enable-rev \
+        --enable-runuser \
+        --enable-setpriv \
+        --enable-setterm \
+        --enable-sha1sum \
+        --enable-sha224sum \
+        --enable-sha256sum \
+        --enable-sha384sum \
+        --enable-sha512sum \
+        --enable-scriptreplay \
+        --enable-static-sh \
+        --enable-swapon \
+        --enable-switch_root \
+        --enable-tailf \
+        --enable-taskset \
+        --enable-unshare \
+        --enable-uuidgen \
+        --enable-wall \
+        --enable-wdctl \
+        --enable-whereis
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Remove unnecessary binaries
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/login"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/su"
+    rm -f "${PKG_INSTALL_DIR}/usr/bin/sulogin"
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}

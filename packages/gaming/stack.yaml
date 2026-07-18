@@ -1,0 +1,631 @@
+# Moon OS Gaming Stack Package Definitions
+# Complete gaming platform support
+
+# ============================================================================
+# Steam
+# ============================================================================
+steam:
+  name: Steam
+  version: "1.0.0.81"
+  description: "Steam - The ultimate gaming platform"
+  url: "https://store.steampowered.com/"
+  license: "Proprietary"
+  categories: ["gaming"]
+  dependencies:
+    - lib32-libgl
+    - lib32-mesa
+    - lib32-nvidia-utils
+    - lib32-vulkan-icd-loader
+    - lib32-fontconfig
+    - lib32-sdl2
+    - lib32-gcc-libs
+    - lib32-glibc
+    - steam-native-runtime
+    - steam-devices
+  build:
+    source: "https://steamcdn-a.akamaihd.net/client/installer/steam.deb"
+    type: "deb"
+    post_install: |
+      # Create Steam desktop entry
+      mkdir -p /usr/share/applications
+      cat > /usr/share/applications/steam.desktop << EOF
+      [Desktop Entry]
+      Name=Steam
+      Comment=Application for managing and playing games on Steam
+      Exec=steam %U
+      Icon=steam
+      Terminal=false
+      Type=Application
+      Categories=Network;FileTransfer;Game;
+      MimeType=x-scheme-handler/steam;
+      Actions=Store;Community;Library;Screenshots;News;Settings;BigPicture;Friends;
+      [Desktop Action Store]
+      Name=Store
+      Exec=steam steam://open/store
+      [Desktop Action Community]
+      Name=Community
+      Exec=steam steam://open/community
+      [Desktop Action Library]
+      Name=Library
+      Exec=steam steam://open/library
+      [Desktop Action Screenshots]
+      Name=Screenshots
+      Exec=steam steam://open/screenshots
+      [Desktop Action News]
+      Name=News
+      Exec=steam steam://open/news
+      [Desktop Action Settings]
+      Name=Settings
+      Exec=steam steam://open/settings
+      [Desktop Action BigPicture]
+      Name=Big Picture
+      Exec=steam steam://open/bigpicture
+      [Desktop Action Friends]
+      Name=Friends
+      Exec=steam steam://open/friends
+      EOF
+
+# ============================================================================
+# Proton
+# ============================================================================
+proton:
+  name: Proton
+  version: "9.0-4"
+  description: "Compatibility tool for Steam Play based on Wine"
+  url: "https://github.com/ValveSoftware/Proton/"
+  license: "BSD"
+  categories: ["gaming"]
+  dependencies:
+    - wine
+    - wine-mono
+    - wine-gecko
+    - vulkan-icd-loader
+    - lib32-vulkan-icd-loader
+    - lib32-mesa
+    - lib32-nvidia-utils
+  build:
+    source: "https://github.com/ValveSoftware/Proton/releases/download/proton-9.0-4/proton-9.0-4.tar.gz"
+    type: "tarball"
+    post_install: |
+      # Install Proton to Steam compatibility tools directory
+      mkdir -p ~/.steam/steam/compatibilitytools.d
+      ln -sf /opt/proton ~/.steam/steam/compatibilitytools.d/Proton-9.0-4
+
+# ============================================================================
+# Wine
+# ============================================================================
+wine:
+  name: Wine
+  version: "9.0"
+  description: "Wine Is Not an Emulator - Windows compatibility layer"
+  url: "https://www.winehq.org/"
+  license: "LGPL-2.1"
+  categories: ["gaming", "utilities"]
+  dependencies:
+    - lib32-fontconfig
+    - lib32-freetype2
+    - lib32-gcc-libs
+    - lib32-glibc
+    - lib32-gnutls
+    - lib32-lcms2
+    - lib32-libjpeg-turbo
+    - lib32-libpng
+    - lib32-libxcomposite
+    - lib32-libxcursor
+    - lib32-libxi
+    - lib32-libxml2
+    - lib32-libxrandr
+    - lib32-libxrender
+    - lib32-libxslt
+    - lib32-libxxf86vm
+    - lib32-mesa
+    - lib32-ncurses
+    - lib32-opencl-icd-loader
+    - lib32-sdl2
+    - lib32-vulkan-icd-loader
+    - lib32-vulkan-validation-layers
+    - wine-mono
+    - wine-gecko
+  build:
+    source: "https://dl.winehq.org/wine/source/9.0/wine-9.0.tar.xz"
+    type: "tarball"
+    configure: |
+      ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --libdir=/usr/lib32 \
+        --enable-win64 \
+        --with-wayland \
+        --with-xattr \
+        --with-vulkan \
+        --with-gstreamer \
+        --with-fontconfig \
+        --with-freetype \
+        --with-gnutls \
+        --with-opengl \
+        --with-pulse
+    build: "make -j$(nproc)"
+    install: "make DESTDIR=\${pkgdir} install"
+
+# ============================================================================
+# Heroic Games Launcher
+# ============================================================================
+heroic:
+  name: Heroic Games Launcher
+  version: "2.15.2"
+  description: "A native GOG, Epic Games Store, and Amazon Prime launcher"
+  url: "https://heroicgameslauncher.com/"
+  license: "GPL-3.0"
+  categories: ["gaming"]
+  dependencies:
+    - electron
+    - gtk3
+    - lib32-gtk3
+    - libappindicator-gtk3
+    - libnotify
+    - unzip
+    - wget
+    - python
+  build:
+    source: "https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/releases/download/v2.15.2/heroic-2.15.2.AppImage"
+    type: "appimage"
+    post_install: |
+      # Create desktop entry
+      mkdir -p /usr/share/applications
+      cat > /usr/share/applications/heroic.desktop << EOF
+      [Desktop Entry]
+      Name=Heroic Games Launcher
+      Comment=Heroic Games Launcher
+      Exec=/opt/heroic/heroic %U
+      Icon=heroic
+      Terminal=false
+      Type=Application
+      Categories=Game;
+      MimeType=x-scheme-handler/heroic;
+      Keywords=game;gaming;epic;gog;
+      StartupWMClass=Heroic Games Launcher
+      EOF
+
+# ============================================================================
+# Lutris
+# ============================================================================
+lutris:
+  name: Lutris
+  version: "0.5.17"
+  description: "An open gaming platform for Linux"
+  url: "https://lutris.net/"
+  license: "GPL-3.0"
+  categories: ["gaming"]
+  dependencies:
+    - python
+    - python-gobject
+    - gtk3
+    - lib32-gtk3
+    - pango
+    - lib32-pango
+    - cairo
+    - lib32-cairo
+    - libpng
+    - lib32-libpng
+    - sdl2
+    - lib32-sdl2
+    - mpg123
+    - lib32-mpg123
+    - lib32-vulkan-icd-loader
+    - vulkan-icd-loader
+    - lib32-libarchive
+    - cabextract
+    - unzip
+    - p7zip
+    - wget
+    - xterm
+  build:
+    source: "https://github.com/lutris/lutris/archive/v0.5.17.tar.gz"
+    type: "tarball"
+    configure: "python setup.py install --prefix=/usr --root=\${pkgdir}"
+    post_install: |
+      # Create desktop entry
+      mkdir -p /usr/share/applications
+      cat > /usr/share/applications/lutris.desktop << EOF
+      [Desktop Entry]
+      Name=Lutris
+      Comment=Open gaming platform
+      Exec=lutris %U
+      Icon=lutris
+      Terminal=false
+      Type=Application
+      Categories=Game;Emulator;
+      MimeType=x-scheme-handler/lutris;
+      Keywords=game;gaming;wine;proton;
+      StartupWMClass=Lutris
+      EOF
+
+# ============================================================================
+# GameMode
+# ============================================================================
+gamemode:
+  name: GameMode
+  version: "1.8.1"
+  description: "Optimises system performance on demand for gaming"
+  url: "https://github.com/FeralInteractive/gamemode"
+  license: "BSD"
+  categories: ["gaming", "utilities"]
+  dependencies:
+    - libinih
+    - libdbus
+    - polkit
+  build:
+    source: "https://github.com/FeralInteractive/gamemode/archive/refs/tags/1.8.1.tar.gz"
+    type: "tarball"
+    configure: |
+      meson setup build \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --libexecdir=/usr/lib \
+        -Dwith-systemd=false \
+        -Dwith-examples=false
+    build: "ninja -C build"
+    install: "DESTDIR=\${pkgdir} ninja -C build install"
+
+# ============================================================================
+# MangoHud
+# ============================================================================
+mangohud:
+  name: MangoHud
+  version: "0.7.2"
+  description: "A Vulkan and OpenGL overlay for monitoring performance"
+  url: "https://github.com/flightlessmango/MangoHud"
+  license: "MIT"
+  categories: ["gaming", "utilities"]
+  dependencies:
+    - vulkan-icd-loader
+    - lib32-vulkan-icd-loader
+    - mesa
+    - lib32-mesa
+    - gcc-libs
+    - lib32-gcc-libs
+    - glibc
+    - lib32-glibc
+    - dbus
+    - lib32-dbus
+    - xdg-utils
+    - python
+  build:
+    source: "https://github.com/flightlessmango/MangoHud/archive/refs/tags/v0.7.2.tar.gz"
+    type: "tarball"
+    configure: |
+      meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib \
+        --sysconfdir=/etc \
+        -Dappend_libdir_mangohud=false \
+        -Dwith_xnvctrl=disabled
+    build: "ninja -C build"
+    install: "DESTDIR=\${pkgdir} ninja -C build install"
+
+# ============================================================================
+# Gamescope
+# ============================================================================
+gamescope:
+  name: Gamescope
+  version: "3.14.14"
+  description: "Micro-compositor for SteamOS"
+  url: "https://github.com/ValveSoftware/gamescope"
+  license: "BSD"
+  categories: ["gaming"]
+  dependencies:
+    - wayland
+    - lib32-wayland
+    - libx11
+    - lib32-libx11
+    - libxcomposite
+    - lib32-libxcomposite
+    - libxfixes
+    - lib32-libxfixes
+    - libxrender
+    - lib32-libxrender
+    - pixman
+    - lib32-pixman
+    - libdrm
+    - lib32-libdrm
+    - mesa
+    - lib32-mesa
+    - vulkan-icd-loader
+    - lib32-vulkan-icd-loader
+  build:
+    source: "https://github.com/ValveSoftware/gamescope/archive/refs/tags/3.14.14.tar.gz"
+    type: "tarball"
+    configure: |
+      meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib \
+        --sysconfdir=/etc \
+        -Dxwayland=enabled \
+        -Dforce_egl_client_library=false
+    build: "ninja -C build"
+    install: "DESTDIR=\${pkgdir} ninja -C build install"
+
+# ============================================================================
+# OBS Studio
+# ============================================================================
+obs-studio:
+  name: OBS Studio
+  version: "30.1.2"
+  description: "Free and open source software for video recording and live streaming"
+  url: "https://obsproject.com/"
+  license: "GPL-2.0"
+  categories: ["gaming", "utilities"]
+  dependencies:
+    - ffmpeg
+    - jansson
+    - libxkbcommon
+    - libxcomposite
+    - libxinerama
+    - libxss
+    - libxtst
+    - libglvnd
+    - pipewire
+    - qt6-base
+    - qt6-svg
+    - qt6-wayland
+    - v4l-utils
+    - vulkan-icd-loader
+    - wayland
+    - wlroots
+  build:
+    source: "https://github.com/obsproject/obs-studio/archive/refs/tags/30.1.2.tar.gz"
+    type: "tarball"
+    configure: |
+      cmake -B build \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DENABLE_PLUGINS=ON \
+        -DENABLE_SCRIPTING=OFF \
+        -DENABLE_VST=OFF
+    build: "cmake --build build -j$(nproc)"
+    install: "DESTDIR=\${pkgdir} cmake --install build"
+
+# ============================================================================
+# Discord
+# ============================================================================
+discord:
+  name: Discord
+  version: "0.0.56"
+  description: "All-in-one voice, video, and text chat"
+  url: "https://discord.com/"
+  license: "Proprietary"
+  categories: ["gaming", "utilities"]
+  dependencies:
+    - electron
+    - libnotify
+    - libxss
+    - nspr
+    - nss
+    - libgbm
+    - libxcomposite
+    - libxrandr
+    - libxdamage
+    - libxfixes
+    - pango
+    - cairo
+    - atk
+    - cups
+    - libdrm
+    - mesa
+    - libxshmfence
+  build:
+    source: "https://dl.discordapp.net/apps/linux/0.0.56/discord-0.0.56.tar.gz"
+    type: "tarball"
+    post_install: |
+      # Create desktop entry
+      mkdir -p /usr/share/applications
+      cat > /usr/share/applications/discord.desktop << EOF
+      [Desktop Entry]
+      Name=Discord
+      Comment=Discord - Chat for Gamers
+      Exec=/opt/discord/Discord %U
+      Icon=discord
+      Terminal=false
+      Type=Application
+      Categories=Network;InstantMessaging;
+      MimeType=x-scheme-handler/discord;
+      Keywords=discord;chat;gaming;
+      StartupWMClass=discord
+      EOF
+
+# ============================================================================
+# Bottles
+# ============================================================================
+bottles:
+  name: Bottles
+  version: "51.7"
+  description: "Easily manage Wine and Proton prefixes"
+  url: "https://usebottles.com/"
+  license: "GPL-3.0"
+  categories: ["gaming"]
+  dependencies:
+    - python
+    - python-gobject
+    - gtk4
+    - libadwaita
+    - libhandy
+    - cabextract
+    - wget
+    - unzip
+    - p7zip
+    - wine
+    - gamemode
+    - mangohud
+  build:
+    source: "https://github.com/bottlesdevs/bottles/archive/refs/tags/51.7.tar.gz"
+    type: "tarball"
+    configure: |
+      meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib \
+        --sysconfdir=/etc
+    build: "ninja -C build"
+    install: "DESTDIR=\${pkgdir} ninja -C build install"
+
+# ============================================================================
+# DXVK
+# ============================================================================
+dxvk:
+  name: DXVK
+  version: "2.4"
+  description: "A Vulkan-based translation layer for Direct3D 9/10/11"
+  url: "https://github.com/doitsujin/dxvk"
+  license: "Zlib"
+  categories: ["gaming"]
+  dependencies:
+    - vulkan-icd-loader
+    - lib32-vulkan-icd-loader
+    - wine
+  build:
+    source: "https://github.com/doitsujin/dxvk/archive/refs/tags/v2.4.tar.gz"
+    type: "tarball"
+    configure: |
+      ./package-release.sh 2.4 /usr --without-x32 --with-tests
+    post_install: |
+      # Install DXVK to Wine prefix
+      mkdir -p /opt/dxvk
+      cp -r build/* /opt/dxvk/
+
+# ============================================================================
+# VKD3D
+# ============================================================================
+vkd3d:
+  name: VKD3D
+  version: "2.12"
+  description: "Direct3D 12 to Vulkan translation layer"
+  url: "https://github.com/wine-mirror/wine-vkd3d"
+  license: "LGPL-2.1"
+  categories: ["gaming"]
+  dependencies:
+    - vulkan-icd-loader
+    - lib32-vulkan-icd-loader
+    - wine
+  build:
+    source: "https://github.com/wine-mirror/wine-vkd3d/archive/refs/tags/v2.12.tar.gz"
+    type: "tarball"
+    configure: |
+      ./autogen.sh
+      ./configure --prefix=/usr
+    build: "make -j$(nproc)"
+    install: "make DESTDIR=\${pkgdir} install"
+
+# ============================================================================
+# Gamemode
+# ============================================================================
+gamemode:
+  name: GameMode
+  version: "1.8.1"
+  description: "Optimises system performance on demand for gaming"
+  url: "https://github.com/FeralInteractive/gamemode"
+  license: "BSD"
+  categories: ["gaming"]
+  dependencies:
+    - libinih
+    - libdbus
+    - polkit
+  build:
+    source: "https://github.com/FeralInteractive/gamemode/archive/refs/tags/1.8.1.tar.gz"
+    type: "tarball"
+    configure: |
+      meson setup build \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --libexecdir=/usr/lib
+    build: "ninja -C build"
+    install: "DESTDIR=\${pkgdir} ninja -C build install"
+
+# ============================================================================
+# MangoHud
+# ============================================================================
+mangohud:
+  name: MangoHud
+  version: "0.7.2"
+  description: "A Vulkan and OpenGL overlay for monitoring and controlling performance"
+  url: "https://github.com/flightlessmango/MangoHud"
+  license: "MIT"
+  categories: ["gaming"]
+  dependencies:
+    - vulkan-icd-loader
+    - lib32-vulkan-icd-loader
+    - mesa
+    - lib32-mesa
+    - gcc-libs
+    - lib32-gcc-libs
+    - glibc
+    - lib32-glibc
+    - dbus
+    - lib32-dbus
+  build:
+    source: "https://github.com/flightlessmango/MangoHud/archive/refs/tags/v0.7.2.tar.gz"
+    type: "tarball"
+    configure: |
+      meson setup build \
+        --prefix=/usr \
+        --libdir=/usr/lib \
+        --sysconfdir=/etc
+    build: "ninja -C build"
+    install: "DESTDIR=\${pkgdir} ninja -C build install"
+
+# ============================================================================
+# Steam Tweaks
+# ============================================================================
+steam-tweaks:
+  name: Steam Tweaks
+  version: "1.0.0"
+  description: "Moon OS Steam Optimization Script"
+  url: "https://github.com/moonos/steam-tweaks"
+  license: "MIT"
+  categories: ["gaming"]
+  dependencies:
+    - steam
+    - gamemode
+    - mangohud
+    - gamescope
+  build:
+    source: "internal"
+    type: "script"
+    post_install: |
+      # Create Steam optimization script
+      mkdir -p /opt/steam-tweaks
+      cat > /opt/steam-tweaks/optimize.sh << 'SCRIPT'
+      #!/bin/bash
+      # Moon OS Steam Optimization Script
+      
+      echo "Moon OS Steam Optimization"
+      echo "========================="
+      
+      # Enable GameMode
+      echo "Enabling GameMode..."
+      systemctl --user enable gamemoded.service
+      
+      # Configure MangoHud
+      echo "Configuring MangoHud..."
+      mkdir -p ~/.config/MangoHud
+      
+      # Configure Gamescope
+      echo "Configuring Gamescope..."
+      mkdir -p ~/.config/gamescope
+      
+      # Optimize Steam
+      echo "Optimizing Steam settings..."
+      STEAM_DIR="${HOME}/.steam/steam"
+      mkdir -p "$STEAM_DIR/config"
+      
+      # Add launch options for better performance
+      cat > "$STEAM_DIR/config/config.vdf" << 'EOF'
+      "install"
+      {
+          "BaseInstallFolder_1" "~/Games/Steam"
+      }
+      EOF
+      
+      echo "Optimization complete!"
+      echo "Please restart Steam for changes to take effect."
+      SCRIPT
+      chmod +x /opt/steam-tweaks/optimize.sh

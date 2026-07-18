@@ -1,0 +1,167 @@
+#!/bin/bash
+# MOONPKG - Moon OS Package Build System
+# Production-grade build system for Moon OS
+
+set -euo pipefail
+
+MOON_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MOON_SOURCE="${MOON_ROOT}/source"
+MOON_PACKAGES="${MOON_ROOT}/packages"
+MOON_OUTPUT="${MOON_ROOT}/output"
+MOON_SYSROOT="${MOON_ROOT}/sysroot"
+MOON_TOOLCHAIN="${MOON_ROOT}/toolchain"
+MOON_CACHE="${MOON_ROOT}/cache"
+MOON_LOGS="${MOON_ROOT}/logs"
+MOON_BUILDS="${MOON_ROOT}/builds"
+
+# Load version info
+source "${MOON_ROOT}/VERSION"
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Logging
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+
+# Create directory structure
+init_dirs() {
+    log_step "Initializing directory structure..."
+    mkdir -p "${MOON_SOURCE}" "${MOON_PACKAGES}" "${MOON_OUTPUT}"
+    mkdir -p "${MOON_SYSROOT}"/{bin,sbin,lib,lib64,usr/{bin,sbin,lib,lib64,include,share},etc,var,proc,sys,dev,tmp,boot}
+    mkdir -p "${MOON_TOOLCHAIN}" "${MOON_CACHE}" "${MOON_LOGS}" "${MOON_BUILDS}"
+    log_success "Directory structure initialized"
+}
+
+# Build a package
+build_package() {
+    local pkg="$1"
+    local pkgfile="${MOON_PACKAGES}/${pkg}/PKGBUILD"
+    
+    if [[ ! -f "$pkgfile" ]]; then
+        log_error "Package not found: $pkg"
+        return 1
+    fi
+    
+    log_step "Building: $pkg"
+    
+    # Source the PKGBUILD
+    source "$pkgfile"
+    
+    # Create build directory
+    local builddir="${MOON_BUILDS}/${pkg}"
+    rm -rf "$builddir"
+    mkdir -p "$builddir"
+    
+    # Download sources
+    log_info "Downloading sources..."
+    for src in "${source[@]}"; do
+        local filename=$(basename "$src")
+        if [[ ! -f "${MOON_CACHE}/${filename}" ]]; then
+            wget -q --show-progress -O "${MOON_CACHE}/${filename}" "$src"
+        fi
+    done
+    
+    # Extract sources
+    log_info "Extracting sources..."
+    cd "$builddir"
+    for src in "${source[@]}"; do
+        local filename=$(basename "$src")
+        case "$filename" in
+            *.tar.gz|*.tgz) tar xzf "${MOON_CACHE}/${filename}" ;;
+            *.tar.xz|*.txz) tar xJf "${MOON_CACHE}/${filename}" ;;
+            *.tar.bz2) tar xjf "${MOON_CACHE}/${filename}" ;;
+            *.zip) unzip -q "${MOON_CACHE}/${filename}" ;;
+        esac
+    done
+    
+    # Apply patches
+    if [[ -d "${MOON_PACKAGES}/${pkg}/patches" ]]; then
+        log_info "Applying patches..."
+        for patch in "${MOON_PACKAGES}/${pkg}/patches/"*.patch; do
+            [[ -f "$patch" ]] && patch -p1 < "$patch"
+        done
+    fi
+    
+    # Build
+    log_info "Building..."
+    eval "${build}"
+    
+    # Package
+    log_info "Packaging..."
+    local pkgfile="${MOON_OUTPUT}/${pkg}-${version}-${release}.pkg.tar.zst"
+    tar --zstd -cf "$pkgfile" -C "${MOON_SYSROOT}" .
+    
+    log_success "Built: $pkg"
+}
+
+# Build all packages in order
+build_all() {
+    local packages=(
+        # Core system
+        "musl" "linux-headers" "busybox" "coreutils" "bash" "systemd"
+        # Build tools
+        "gcc" "binutils" "make" "cmake" "meson" "ninja"
+        # Libraries
+        "zlib" "xz" "zstd" "openssl" "libffi" "ncurses" "readline"
+        # Graphics
+        "mesa" "vulkan-loader" "vulkan-tools" "drm" "libdrm"
+        # Audio
+        "pipewire" "wireplumber" "alsa-lib" "alsa-plugins"
+        # Display
+        "wayland" "wayland-protocols" "xorg-server" "xorg-drivers"
+        # Desktop
+        "gnome-shell" "gnome-terminal" "nautilus" "gnome-settings"
+        # Gaming
+        "steam" "proton" "gamemode" "mangohud" "wine" "lutris"
+        # Development
+        "git" "gcc-devel" "clang" "llvm" "nodejs" "python" "rust" "go"
+        # Networking
+        "networkmanager" "iwd" "wpa_supplicant" "openssh"
+        # System
+        "dracut" "grub" "plymouth" "timeshift"
+    )
+    
+    for pkg in "${packages[@]}"; do
+        build_package "$pkg" || log_warn "Failed to build: $pkg"
+    done
+}
+
+# Main
+case "${1:-help}" in
+    init)
+        init_dirs
+        ;;
+    build)
+        build_package "${2:?Package name required}"
+        ;;
+    build-all)
+        build_all
+        ;;
+    clean)
+        log_step "Cleaning build directories..."
+        rm -rf "${MOON_BUILDS:?}"/* "${MOON_OUTPUT:?}"/*
+        log_success "Clean complete"
+        ;;
+    help|*)
+        echo "MOONPKG - Moon OS Package Build System"
+        echo ""
+        echo "Usage: $0 <command> [args]"
+        echo ""
+        echo "Commands:"
+        echo "  init        Initialize directory structure"
+        echo "  build <pkg> Build a single package"
+        echo "  build-all   Build all packages"
+        echo "  clean       Clean build artifacts"
+        echo "  help        Show this help"
+        ;;
+esac

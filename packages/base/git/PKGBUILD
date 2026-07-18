@@ -1,0 +1,128 @@
+# MoonOS Package: git
+# Distributed version control system
+
+pkg_name="git"
+pkg_version="2.43.0"
+pkg_release="1"
+pkg_description="Git - distributed version control system"
+pkg_url="https://git-scm.com/"
+pkg_license="GPL-2.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "curl" "openssl" "zlib" "expat" "pcre2")
+pkg_build_depends=("linux-headers" "perl" "python3")
+
+pkg_source=(
+    "https://github.com/git/git/archive/refs/tags/v2.43.0.tar.gz"
+)
+
+pkg_sha256=(
+    "a1c48e14cb3e4b1c3c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5"
+)
+
+pkg_configure() {
+    make prefix=/usr \
+        sysconfdir=/etc \
+        localstatedir=/var \
+        CURL_DIR=/usr \
+        ZLIB_PATH=/usr \
+        NO_OPENSSL=1 \
+        USE_LIBPCRE2=1 \
+        HAVE_LIBCURL=1 \
+        NO_TCLTK=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1 \
+        NO_PERL=1 \
+        NO_PYTHON=1 \
+        NO_TCLTK=1 \
+        NO_EXPAT=1 \
+        NO_CURL=1
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_install() {
+    make prefix=/usr \
+        sysconfdir=/etc \
+        localstatedir=/var \
+        DESTDIR="${PKG_INSTALL_DIR}" \
+        install
+}
+
+pkg_prelude() {
+    # Ensure dependencies are installed
+    for dep in curl openssl zlib expat pcre2; do
+        if ! pkg_is_installed "$dep"; then
+            log_info "Building dependency: $dep"
+            build_package "$dep"
+        fi
+    done
+}

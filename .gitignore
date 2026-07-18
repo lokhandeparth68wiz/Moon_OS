@@ -1,0 +1,43 @@
+# Moon OS Build Artifacts
+build/
+output/
+*.iso
+*.img
+*.qcow2
+*.vmdk
+*.vdi
+*.vbox
+*.vbox-snapshot
+
+# Dependencies
+node_modules/
+vendor/
+pkg/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Moon OS specific
+moon-os.iso
+moon-os.img
+packages/*/src/
+packages/*/work/

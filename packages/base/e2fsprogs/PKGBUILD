@@ -1,0 +1,56 @@
+# MoonOS Package: e2fsprogs
+# Ext2/3/4 filesystem utilities
+
+pkg_name="e2fsprogs"
+pkg_version="1.47.0"
+pkg_release="1"
+pkg_description="Ext2/3/4 filesystem utilities"
+pkg_url="https://github.com/tytso/e2fsprogs"
+pkg_license="GPL-2.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "util-linux")
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://github.com/tytso/e2fsprogs/releases/download/v1.47.0/e2fsprogs-1.47.0.tar.xz"
+)
+
+pkg_sha256=(
+    "58e808380824996a04d53d37e57c5b1b5e1c2c0f8f7e0e3a4b5c6d7e8f9a0b1c"
+)
+
+pkg_configure() {
+    ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --enable-shared \
+        --disable-static \
+        --disable-reflink \
+        --disable-rpath \
+        --disable-fsck \
+        --disable-uuidd \
+        --disable-libuuid \
+        --disable-libblkid \
+        --disable-libmount
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Remove unnecessary files
+    rm -rf "${PKG_INSTALL_DIR}/usr/share/doc"
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}

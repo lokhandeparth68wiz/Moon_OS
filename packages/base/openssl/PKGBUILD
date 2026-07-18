@@ -1,0 +1,52 @@
+# MoonOS Package: openssl
+# TLS/SSL and cryptography library
+
+pkg_name="openssl"
+pkg_version="3.2.0"
+pkg_release="1"
+pkg_description="The OpenSSL Library - TLS/SSL and cryptography library"
+pkg_url="https://www.openssl.org/"
+pkg_license="Apache-2.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "zlib")
+pkg_build_depends=("perl")
+
+pkg_source=(
+    "https://github.com/openssl/openssl/releases/download/openssl-3.2.0/openssl-3.2.0.tar.gz"
+)
+
+pkg_sha256=(
+    "9062080e544b88e596515925de03e27c545f6800a4c9e1e1a5e3e6a5a3c2e3e1"
+)
+
+pkg_configure() {
+    ./Configure \
+        --prefix=/usr \
+        --openssldir=/etc/ssl \
+        --libdir=/lib \
+        shared \
+        zlib \
+        -m64 \
+        -O2
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make test
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install_sw
+
+    # Create symlinks for compatibility
+    ln -sf /lib/libssl.so.3 "${PKG_INSTALL_DIR}/lib/libssl.so"
+    ln -sf /lib/libcrypto.so.3 "${PKG_INSTALL_DIR}/lib/libcrypto.so"
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}

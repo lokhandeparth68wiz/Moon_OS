@@ -1,0 +1,85 @@
+# MoonOS Package: gcc
+# GNU Compiler Collection
+
+pkg_name="gcc"
+pkg_version="13.2.0"
+pkg_release="1"
+pkg_description="The GNU Compiler Collection"
+pkg_url="https://gcc.gnu.org/"
+pkg_license="GPL-3.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=("musl" "gmp" "mpfr" "mpc")
+pkg_build_depends=("linux-headers" "binutils")
+
+pkg_source=(
+    "https://ftp.gnu.org/gnu/gcc/gcc-13.2.0/gcc-13.2.0.tar.xz"
+)
+
+pkg_sha256=(
+    "0c568f8032c58f1a9b4fc5e203e4e2c3e5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5"
+)
+
+pkg_configure() {
+    mkdir -p build
+    cd build || return 1
+
+    ../configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --libdir=/usr/lib \
+        --enable-shared \
+        --disable-static \
+        --enable-languages=c,c++ \
+        --enable-threads=posix \
+        --enable-default-pie \
+        --enable-default-ssp \
+        --disable-multilib \
+        --disable-libsanitizer \
+        --disable-libvtv \
+        --with-system-zlib \
+        --with-gmp=/usr \
+        --with-mpfr=/usr \
+        --with-mpc=/usr
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_check() {
+    make -k check
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Create symlinks for compatibility
+    ln -sf gcc "${PKG_INSTALL_DIR}/usr/bin/cc"
+    ln -sf gcc "${PKG_INSTALL_DIR}/usr/bin/gcc-ar"
+    ln -sf gcc "${PKG_INSTALL_DIR}/usr/bin/gcc-nm"
+    ln -sf gcc "${PKG_INSTALL_DIR}/usr/bin/gcc-ranlib"
+
+    # Create spec file for PIE and SSP
+    mkdir -p "${PKG_INSTALL_DIR}/usr/lib/gcc/x86_64-linux-musl/13.2.0"
+    cat > "${PKG_INSTALL_DIR}/usr/lib/gcc/x86_64-linux-musl/13.2.0/specs" << 'EOF'
+*startfile:
+%{!shared: %{pg:-Lpie-startup %:call_shared_startend_pie(%{static-pie:piestart.o%s} %{pie:start.o%s} %{shared:false} %{static-pie:piestart.o%s} %{!pie:start.o%s})} %{static-pie:piestart.o%s} %{!static-pie:start.o%s} %{shared:false}} crtbegin.o%s
+
+*link:
+%(link_sysroot) -pie -z now -z relro %{!shared: %{!static: -pie}}
+
+*ffast-math:
+%{Ofast|O3|fomit-frame-pointer|funroll-loops|ffast-math|funsafe-math-optimizations:-funsafe-math-optimizations}
+EOF
+}
+
+pkg_prelude() {
+    # Ensure GCC dependencies are built first
+    for dep in gmp mpfr mpc; do
+        if ! pkg_is_installed "$dep"; then
+            log_info "Building GCC dependency: $dep"
+            build_package "$dep"
+        fi
+    done
+}

@@ -1,0 +1,55 @@
+# MoonOS Package: busybox
+# Minimal utilities for embedded and rescue systems
+
+pkg_name="busybox"
+pkg_version="1.36.1"
+pkg_release="1"
+pkg_description="BusyBox combines tiny versions of many common UNIX utilities into a single small executable"
+pkg_url="https://busybox.net/"
+pkg_license="GPL-2.0"
+pkg_arch="x86_64 aarch64 armv7l riscv64"
+pkg_depends=()
+pkg_build_depends=("linux-headers")
+
+pkg_source=(
+    "https://busybox.net/downloads/busybox-1.36.1.tar.bz2"
+)
+
+pkg_sha256=(
+    "ab8a58878d6d6233c3f28f1457115b14f71ab93b5b1b14c5b42e8371ea3f6a4e"
+)
+
+pkg_configure() {
+    # Use default busybox config
+    make defconfig
+
+    # Enable additional features
+    sed -i 's/# CONFIG_FEATURE_INSTALLER is not set/CONFIG_FEATURE_INSTALLER=y/' .config
+    sed -i 's/# CONFIG_FEATURE_MOUNT_VERBOSE is not set/CONFIG_FEATURE_MOUNT_VERBOSE=y/' .config
+    sed -i 's/# CONFIG_FEATURE_UTC_TIME is not set/CONFIG_FEATURE_UTC_TIME=y/' .config
+
+    # Enable ash shell as default
+    sed -i 's/# CONFIG_ASH is not set/CONFIG_ASH=y/' .config
+    sed -i 's/# CONFIG_ASH_BASH_COMPAT is not set/CONFIG_ASH_BASH_COMPAT=y/' .config
+    sed -i 's/# CONFIG_ASH_BASH_SOURCE_CURDIR is not set/CONFIG_ASH_BASH_SOURCE_CURDIR=y/' .config
+    sed -i 's/# CONFIG_ASH_BASH_NOT_HASH_BANG is not set/CONFIG_ASH_BASH_NOT_HASH_BANG=y/' .config
+}
+
+pkg_compile() {
+    make -j"$(nproc)"
+}
+
+pkg_install() {
+    make DESTDIR="${PKG_INSTALL_DIR}" install
+
+    # Create symlinks for applets
+    local busybox_bin="${PKG_INSTALL_DIR}/bin/busybox"
+    for applet in sh bash mount umount ls cat cp mv rm mkdir rmdir ln chmod chown grep find; do
+        ln -sf busybox "${PKG_INSTALL_DIR}/bin/${applet}"
+    done
+}
+
+pkg_prelude() {
+    # No special requirements
+    true
+}
