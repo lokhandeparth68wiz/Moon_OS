@@ -18,7 +18,7 @@ mkdir -p "${ISOROOT}/boot/grub" "${ISOROOT}/live" "${ISOROOT}/isolinux"
 # ──────────────────────────────────────────────
 echo "[1/5] debootstrap..."
 sudo debootstrap --arch=${ARCH} --variant=minbase \
-  --include=linux-image-amd64,initramfs-tools,systemd-sysv,dbus,network-manager,sudo \
+  --include=linux-image-amd64,initramfs-tools,systemd-sysv \
   bookworm "${ROOTFS}" http://deb.debian.org/debian/ || {
   echo "FATAL: debootstrap failed"
   exit 1
@@ -28,6 +28,9 @@ sudo debootstrap --arch=${ARCH} --variant=minbase \
 # 2. Configure
 # ──────────────────────────────────────────────
 echo "[2/5] Configuring..."
+# Install extra packages after base (avoids polkitd config failure)
+sudo chroot "${ROOTFS}" bash -c "apt-get update && apt-get install -y network-manager sudo dbus" 2>/dev/null || true
+
 echo "moonos" | sudo tee "${ROOTFS}/etc/hostname" > /dev/null
 echo "127.0.0.1 localhost" | sudo tee "${ROOTFS}/etc/hosts" > /dev/null
 echo 'root:moonos' | sudo chroot "${ROOTFS}" chpasswd 2>/dev/null || true
