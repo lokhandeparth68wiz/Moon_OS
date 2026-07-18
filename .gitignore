@@ -1,5 +1,5 @@
 # Moon OS Build Artifacts
-build/
+/build/
 output/
 *.iso
 *.img
